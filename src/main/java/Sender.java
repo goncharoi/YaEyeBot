@@ -75,7 +75,7 @@ public class Sender extends Thread {
             userId = JOptionPane.showInputDialog("Введите id Вашего аккаунта в телеграмм");
             try {
                 Long.parseLong(userId);
-            } catch (NumberFormatException err){
+            } catch (NumberFormatException err) {
                 JOptionPane.showMessageDialog(null, "id должен содержать только цифры");
                 userId = "";
             }
@@ -93,7 +93,7 @@ public class Sender extends Thread {
         }
         //выбор БД игр
         JFileChooser fileChooser = new JFileChooser(dbPathDefault);
-        fileChooser.addChoosableFileFilter(new FileNameExtensionFilter("SQLite база данных","db"));
+        fileChooser.addChoosableFileFilter(new FileNameExtensionFilter("SQLite база данных", "db"));
         fileChooser.setDialogTitle("Укажите файл библиотеки игр UserGame.db");
         int ret = fileChooser.showDialog(null, "Ok");
         if (ret == JFileChooser.APPROVE_OPTION) {
@@ -219,6 +219,7 @@ public class Sender extends Thread {
         message.put("text", "/get_procs");
         //параметры пакета
         message.put("pcName", pcName);
+        message.put("pcGuid", pcGuid);
         message.put("userId", userId);
         message.put("sessionUUID", sessionUUID);
         message.put("time", System.currentTimeMillis());
