@@ -61,7 +61,9 @@ public class Sender extends Thread {
             filterServices = Boolean.valueOf(jsonObject.get("filterServices").toString());
             timeout = Byte.valueOf(jsonObject.get("timeout").toString());
             dbPath = (String) jsonObject.get("dbPath");
+            if (dbPath == null) dbPath = "";
             pcGuid = (String) jsonObject.get("pcGuid");
+            if (pcGuid == null) pcGuid = "";
         } catch (Exception err) {
             err.printStackTrace();
         }
@@ -81,14 +83,17 @@ public class Sender extends Thread {
             }
         }
         //имя ПК
-        try {
-            pcName = InetAddress.getLocalHost().getHostName();
-        } catch (UnknownHostException err) {
-            err.printStackTrace();
+        if (!Objects.equals(pcName, "")) {
+            try {
+                pcName = InetAddress.getLocalHost().getHostName();
+            } catch (UnknownHostException err) {
+                err.printStackTrace();
+            }
         }
         boolean firstTime = true;
         while (firstTime || Objects.equals(pcName, "")) {
             pcName = JOptionPane.showInputDialog("Введите уникальное имя ПК", pcName);
+            if (pcName == null) pcName = "";
             firstTime = false;
         }
         //выбор БД игр

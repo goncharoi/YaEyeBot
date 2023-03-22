@@ -1,9 +1,4 @@
-
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.TreeSet;
 
 public class DBWorker {
@@ -14,8 +9,6 @@ public class DBWorker {
         conn = null;
         Class.forName("org.sqlite.JDBC");
         conn = DriverManager.getConnection("jdbc:sqlite:"+dbPath);
-
-        System.out.println("База Подключена!");
     }
 
     // -------- Вывод таблицы--------
@@ -43,7 +36,6 @@ public class DBWorker {
     // --------Закрытие--------
     public void closeDB() throws ClassNotFoundException, SQLException {
         conn.close();
-        System.out.println("Соединения закрыты");
     }
 
 }
