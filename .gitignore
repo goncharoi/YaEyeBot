@@ -19,3 +19,6 @@ target/
 *.cdr
 *.class
 *.jar
+/video/
+/video/latest/
+/video/previousRecordTime.txt

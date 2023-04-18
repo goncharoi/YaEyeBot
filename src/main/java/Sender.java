@@ -1,14 +1,12 @@
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
 
-import javax.swing.*;
-import javax.swing.filechooser.FileNameExtensionFilter;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
 import java.net.URL;
-import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.util.Arrays;
@@ -19,108 +17,24 @@ import java.util.UUID;
 public class Sender extends Thread {
     //настройки отслеживания
     protected String sessionUUID = UUID.randomUUID().toString(); //UUID сессии работы программы
-    protected String pcName = ""; //имя отслеживаемого ПК
-    protected String userId = ""; //id пользователя телеграмма
-    protected Boolean filterServices = true; //фильтровать процессы типа Services
-    protected Byte timeout = 60; //отсылать данные раз в ... сек.
+    protected String pcName; //имя отслеживаемого ПК
+    protected String userId; //id пользователя телеграмма
+    protected Boolean filterServices; //фильтровать процессы типа Services
+    protected Byte timeout; //отсылать данные раз в ... сек.
     protected String dbPathDefault = System.getenv("USERPROFILE") +
             "\\AppData\\Local\\rds-wrtc\\UserGame.db"; //путь к библиотеке игр МТС-лаунчера
-    protected String dbPath = "";
-    protected String pcGuid = "";
+    protected String dbPath;
+    protected String pcGuid;
 
-    public Sender() {
+    public Sender(String pcName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
         super();
-        //чтение настроек
-        readSetting();
-
-        if (Objects.equals(pcGuid, "")) initSetttings();
-        System.out.println(
-                "pcName = " + pcName +
-                        ", userId = " + userId +
-                        ", filterServices = " + filterServices +
-                        ", timeout = " + timeout +
-                        ", dbPath = " + dbPath +
-                        ", pcGuid = " + pcGuid
-        );
-    }
-
-    //чтение настроек
-    public void readSetting() {
-        JSONParser parser = new JSONParser();
-        FileReader fr;
-
-        try {
-            fr = new FileReader("settings.json");
-            Object obj = parser.parse(fr);
-            fr.close();
-
-            JSONObject jsonObject = (JSONObject) obj;
-
-            pcName = (String) jsonObject.get("pcName");
-            userId = (String) jsonObject.get("userId");
-            filterServices = Boolean.valueOf(jsonObject.get("filterServices").toString());
-            timeout = Byte.valueOf(jsonObject.get("timeout").toString());
-            dbPath = (String) jsonObject.get("dbPath");
-            if (dbPath == null) dbPath = "";
-            pcGuid = (String) jsonObject.get("pcGuid");
-            if (pcGuid == null) pcGuid = "";
-        } catch (Exception err) {
-            err.printStackTrace();
-        }
-    }
-
-    public void initSetttings() {
-        //уникальный идентификатор ПК
-        pcGuid = UUID.randomUUID().toString();
-        //id аккаунта в телеграмм
-        while (Objects.equals(userId, "")) {
-            userId = JOptionPane.showInputDialog("Введите id Вашего аккаунта в телеграмм");
-            try {
-                Long.parseLong(userId);
-            } catch (NumberFormatException err) {
-                JOptionPane.showMessageDialog(null, "id должен содержать только цифры");
-                userId = "";
-            }
-        }
-        //имя ПК
-        if (!Objects.equals(pcName, "")) {
-            try {
-                pcName = InetAddress.getLocalHost().getHostName();
-            } catch (UnknownHostException err) {
-                err.printStackTrace();
-            }
-        }
-        boolean firstTime = true;
-        while (firstTime || Objects.equals(pcName, "")) {
-            pcName = JOptionPane.showInputDialog("Введите уникальное имя ПК", pcName);
-            if (pcName == null) pcName = "";
-            firstTime = false;
-        }
-        //выбор БД игр
-        JFileChooser fileChooser = new JFileChooser(dbPathDefault);
-        fileChooser.addChoosableFileFilter(new FileNameExtensionFilter("SQLite база данных", "db"));
-        fileChooser.setDialogTitle("Укажите файл библиотеки игр UserGame.db");
-        int ret = fileChooser.showDialog(null, "Ok");
-        if (ret == JFileChooser.APPROVE_OPTION) {
-            dbPath = fileChooser.getSelectedFile().getAbsolutePath();
-        }
-        //сохраняем настройки
-        try {
-            FileWriter fw = new FileWriter("settings.json");
-
-            JSONObject jo = new JSONObject();
-            jo.put("pcName", pcName);
-            jo.put("userId", userId);
-            jo.put("filterServices", (filterServices) ? "1" : "0");
-            jo.put("timeout", timeout.toString());
-            jo.put("dbPath", dbPath);
-            jo.put("pcGuid", pcGuid);
-
-            fw.write(jo.toJSONString());
-            fw.close();
-        } catch (Exception err) {
-            err.printStackTrace();
-        }
+        //заполнение настроек
+        this.pcName = pcName;
+        this.userId = userId;
+        this.filterServices = filterServices;
+        this.timeout = timeout;
+        this.dbPath = dbPath;
+        this.pcGuid = pcGuid;
     }
 
     @Override
