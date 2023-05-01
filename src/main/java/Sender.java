@@ -1,6 +1,7 @@
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
+import javax.swing.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -14,6 +15,8 @@ import java.util.Objects;
 import java.util.TreeSet;
 import java.util.UUID;
 
+import static javax.swing.JOptionPane.ERROR_MESSAGE;
+
 public class Sender extends Thread {
     //настройки отслеживания
     protected String sessionUUID = UUID.randomUUID().toString(); //UUID сессии работы программы
@@ -25,6 +28,7 @@ public class Sender extends Thread {
             "\\AppData\\Local\\rds-wrtc\\UserGame.db"; //путь к библиотеке игр МТС-лаунчера
     protected String dbPath;
     protected String pcGuid;
+    protected boolean firstTime = true;
 
     public Sender(String pcName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
         super();
@@ -71,25 +75,26 @@ public class Sender extends Thread {
                 //отсекаем шапку
                 if (i < 4) continue;
 
-                info = line.split("\\||&|#", -1);
+                info = line.split("[|&#^]", -1);
 
                 if (Arrays.stream(info).count() > 3) {
-                    //отсекаем виндовские процессы
-                    if (info[2].trim().startsWith("C:\\Windows\\") || info[1].trim().equals("0")) continue;
+                    //отсекаем виндовские процессы и записи без exe
+                    if (info[2].trim().startsWith("C:\\Windows\\") || info[1].trim().equals("0") || info[2].trim().equals("")) continue;
 
                     info[3] = info[3].trim().replaceAll(" ", "_"); //читаемое описание, если есть
                     info[0] = info[0].trim(); //техническое имя процесса
                     if (info[3].equals("")) info[3] = info[0];
 
-                    ProcessInfo pi = new ProcessInfo(info[0], info[3]);
-                    //если вообще нет процесса с таким именем - добавляем
-                    if (processes.stream().noneMatch(s -> Objects.equals(s.name, pi.name)))
-                        processes.add(pi);
-                        //если нет процесса с таким именем и отдельным описанием, а тут он пришел - старый удаляем, а более полный добавляем
-                    else if (processes.stream().noneMatch(s -> Objects.equals(s.name, pi.name) && !Objects.equals(s.name, s.type)) && !Objects.equals(pi.name, pi.type)) {
-                        processes.remove(new ProcessInfo(info[0], info[0]));
-                        processes.add(pi);
-                    }
+                    processes.add(new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim()));
+//                    ProcessInfo pi = new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim());
+//                    //если вообще нет процесса с таким именем - добавляем
+//                    if (processes.stream().noneMatch(s -> Objects.equals(s.name, pi.name)))
+//                        processes.add(pi);
+//                        //если нет процесса с таким именем и отдельным описанием, а тут он пришел - старый удаляем, а более полный добавляем
+//                    else if (processes.stream().noneMatch(s -> Objects.equals(s.name, pi.name) && !Objects.equals(s.name, s.type)) && !Objects.equals(pi.name, pi.type)) {
+//                        processes.remove(new ProcessInfo(info[0], info[0], info[2].trim(), info[4].trim()));
+//                        processes.add(pi);
+//                    }
                 }
             }
             input.close();
@@ -101,6 +106,12 @@ public class Sender extends Thread {
 
     protected TreeSet<GameInfo> listGamesFromLib() {
         TreeSet<GameInfo> games = new TreeSet<>();
+        //отсылаем данные о библиотеке лишь один раз
+        if (firstTime)
+            firstTime = false;
+        else
+            return games;
+        //получаем игры из библиотеки
         try {
             DBWorker DBW = new DBWorker((!Objects.equals(dbPath, "")) ? dbPath : dbPathDefault);
             games = DBW.readDB();
@@ -108,6 +119,9 @@ public class Sender extends Thread {
         } catch (ClassNotFoundException | SQLException err) {
             err.printStackTrace();
         }
+        //добавляем игры из Steam
+        games.addAll(SteamReader.getSteamGames());
+
         return games;
     }
 
@@ -120,6 +134,8 @@ public class Sender extends Thread {
             JSONObject jo = new JSONObject();
             jo.put("name", next.name);
             jo.put("type", next.type);
+            jo.put("exe", next.exe);
+            jo.put("version", next.version);
             jProcs.add(jo);
         }
         //список игр к отправке

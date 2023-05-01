@@ -136,13 +136,13 @@ public class Main extends JFrame {
         videoCheckBox = new JCheckBox("Вести ведиозапись сессий");
         videoCheckBox.setSelected(video);
         // --частота кадров
-        fpsLabel = new JLabel("Частота кадров/сек.");
+        fpsLabel = new JLabel("Частота кадров/сек. (рекомендуется менее 5)");
         fpsField = new NumericTextField();
         fpsField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));
         fpsField.setColumns(3);
         fpsField.setText(fps.toString());
         // --максимальная пуаза
-        mtfLabel1 = new JLabel("Максимальная пуаза в движении, после которой");
+        mtfLabel1 = new JLabel("Минимальная пуаза в движении, после которой");
         mtfLabel2 = new JLabel("может начаться новая видеозапись (в минутах)");
         mtfField = new NumericTextField();
         mtfField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));

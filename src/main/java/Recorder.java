@@ -3,6 +3,7 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
+import javax.swing.text.StyleConstants;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
@@ -51,7 +52,7 @@ public class Recorder extends Thread {
 
         //собираем видео из скриншотов последней сессии с помощью ffmpeg
         if (!Objects.equals(fName, "")){
-            String commands = "ffmpeg\\bin\\ffmpeg.exe -start_number 1 -framerate 1/" + fps + " -i \"" + inPath + "\\screenshot%d.jpg\" " +
+            String commands = "ffmpeg\\bin\\ffmpeg.exe -start_number 1 -framerate " + fps + " -i \"" + inPath + "\\screenshot%d.jpg\" " +
                     "-c:v libx264 -preset ultrafast -crf 23 " +
                     "-pix_fmt yuv420p -r " + fps + " " +
                     "-hide_banner -y -v error -stats " +
@@ -95,22 +96,37 @@ public class Recorder extends Thread {
         }
 
         //клепаем новые скриншоты
-        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
-        ImageWriteParam param = writer.getDefaultWriteParam();
-
-        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-        param.setCompressionQuality(0.3f);
         try {
             long i = 1;
             do {
                 try {
+                    ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+                    ImageWriteParam param = writer.getDefaultWriteParam();
+
+                    param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                    param.setCompressionQuality(0.3f);
+
                     BufferedImage image = new Robot().createScreenCapture(new Rectangle(Toolkit.getDefaultToolkit().getScreenSize()));
+                    Graphics graphics = image.getGraphics();
+                    //рисуем курсор
+                    Point point = MouseInfo.getPointerInfo().getLocation();
+                    graphics.setColor(Color.WHITE);
+                    graphics.fillOval((int) point.getX(),(int) point.getY(),20,20);
+                    //рисуем дату и время
+                    graphics.setColor(Color.BLACK);
+                    graphics.fillRect(25, 10,250,25);
+                    graphics.setColor(Color.WHITE);
+                    SimpleDateFormat formater = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+                    graphics.setFont(new Font(Font.MONOSPACED,Font.BOLD,20));
+                    graphics.drawString(formater.format(new Date()), 30, 30);
+                    //сохраняем в файл
                     File compressedImageFile = new File(inPath + "\\screenshot" + screenshot_id + ".jpg");
                     OutputStream os =new FileOutputStream(compressedImageFile);
                     ImageOutputStream ios = ImageIO.createImageOutputStream(os);
                     writer.setOutput(ios);
                     writer.write(null, new IIOImage(image, null, null), param);
-                    //ImageIO.write(image, "png", new File(inPath + "\\screenshot" + screenshot_id + ".png"));
+                    os.close();
+                    ios.close();
                     sleep(1000 / fps);
                 } catch (InterruptedException ex) {
                     return; //Завершение потока после прерывания
