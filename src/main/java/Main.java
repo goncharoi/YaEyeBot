@@ -54,7 +54,7 @@ public class Main extends JFrame {
     protected Byte videosLifeDays = 1; //длительность хранения видеозаписей (в днях)
 
     public Main() throws IOException {
-        super("Отслеживание ПК");
+        super("Отслеживание ПК v2.1.3");
         iconTr = new TrayIcon(ImageIO.read(new File("icon.png")), "Отслеживание ПК");
         iconTr.addActionListener(ev -> {
             setVisible(true);
@@ -87,8 +87,8 @@ public class Main extends JFrame {
 
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
-            sender = new Sender(pcName, userId, filterServices, timeout, dbPath, pcGuid);
             listener = new Listener(fps, minutesToFreeze, duration, videosLifeDays);
+            sender = new Sender(listener, video, pcName, userId, filterServices, timeout, dbPath, pcGuid);
         }
     }
 

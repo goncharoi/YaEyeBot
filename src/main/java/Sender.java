@@ -1,11 +1,8 @@
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
 
-import javax.swing.*;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -14,8 +11,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.UUID;
-
-import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class Sender extends Thread {
     //настройки отслеживания
@@ -29,8 +24,12 @@ public class Sender extends Thread {
     protected String dbPath;
     protected String pcGuid;
     protected boolean firstTime = true;
+    protected Listener listener;
+    protected boolean explorer_stopped = false;
+    protected boolean video;
+    protected TreeSet<GameInfo> games = new TreeSet<>();
 
-    public Sender(String pcName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
+    public Sender(Listener listener, Boolean video, String pcName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
         super();
         //заполнение настроек
         this.pcName = pcName;
@@ -39,6 +38,8 @@ public class Sender extends Thread {
         this.timeout = timeout;
         this.dbPath = dbPath;
         this.pcGuid = pcGuid;
+        this.listener = listener;
+        this.video = video;
     }
 
     @Override
@@ -60,7 +61,7 @@ public class Sender extends Thread {
         } while (true);
     }
 
-    protected TreeSet<ProcessInfo> listRunningProcesses() {
+    protected TreeSet<ProcessInfo> listRunningProcesses(TreeSet<GameInfo> games) {
         TreeSet<ProcessInfo> processes = new TreeSet<>();
         try {
             String line;
@@ -77,24 +78,29 @@ public class Sender extends Thread {
 
                 info = line.split("[|&#^]", -1);
 
+                //часть игр запускаются из-под админа и путь для них не пишется, поэтому сверямся по библиотеке,
+                //где эти игры могут быть добавлены через исключения в excGames.json
+                boolean found = false;
+                for (GameInfo game : games)
+                    if (game.gPath.contains(info[0].trim())) {
+                        found = true;
+                        break;
+                    }
+
                 if (Arrays.stream(info).count() > 3) {
                     //отсекаем виндовские процессы и записи без exe
-                    if (info[2].trim().startsWith("C:\\Windows\\") || info[1].trim().equals("0") || info[2].trim().equals("")) continue;
+                    if (
+                            (info[2].trim().startsWith("C:\\Windows\\") ||
+                                    info[1].trim().equals("0") ||
+                                    info[2].trim().equals("") && !found) &&
+                                    !info[0].trim().equals("explorer") //нужен для понимания входа игрока
+                    ) continue;
 
                     info[3] = info[3].trim().replaceAll(" ", "_"); //читаемое описание, если есть
                     info[0] = info[0].trim(); //техническое имя процесса
                     if (info[3].equals("")) info[3] = info[0];
 
                     processes.add(new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim()));
-//                    ProcessInfo pi = new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim());
-//                    //если вообще нет процесса с таким именем - добавляем
-//                    if (processes.stream().noneMatch(s -> Objects.equals(s.name, pi.name)))
-//                        processes.add(pi);
-//                        //если нет процесса с таким именем и отдельным описанием, а тут он пришел - старый удаляем, а более полный добавляем
-//                    else if (processes.stream().noneMatch(s -> Objects.equals(s.name, pi.name) && !Objects.equals(s.name, s.type)) && !Objects.equals(pi.name, pi.type)) {
-//                        processes.remove(new ProcessInfo(info[0], info[0], info[2].trim(), info[4].trim()));
-//                        processes.add(pi);
-//                    }
                 }
             }
             input.close();
@@ -105,8 +111,7 @@ public class Sender extends Thread {
     }
 
     protected TreeSet<GameInfo> listGamesFromLib() {
-        TreeSet<GameInfo> games = new TreeSet<>();
-        //отсылаем данные о библиотеке лишь один раз
+        //получаем данные о библиотеке лишь один раз
         if (firstTime)
             firstTime = false;
         else
@@ -122,6 +127,42 @@ public class Sender extends Thread {
         //добавляем игры из Steam
         games.addAll(SteamReader.getSteamGames());
 
+        //добавляем игры-исключения или заменяем ими данные из библиотеки
+        TreeSet<GameInfo> excGames = readExcGames();
+        for (GameInfo excGame : excGames)
+            games.removeIf(game -> Objects.equals(game.gName, excGame.gName));
+        games.addAll(excGames);
+        return games;
+    }
+
+    //чтение данных для игр-исключений
+    public TreeSet<GameInfo> readExcGames() {
+        TreeSet<GameInfo> games = new TreeSet<>();
+
+        JSONParser parser = new JSONParser();
+        FileReader fr;
+
+        try {
+            fr = new FileReader("excGames.json");
+            Object obj = parser.parse(fr);
+            fr.close();
+
+            JSONObject jsonObject = (JSONObject) obj;
+            JSONArray excGames = (jsonObject.get("excGames") != null) ? (JSONArray) jsonObject.get("excGames") : new JSONArray();
+
+            for (Object excGame : excGames) {
+                JSONObject JSONexcGame = (JSONObject) excGame;
+                GameInfo gi = new GameInfo(
+                        (JSONexcGame.get("name") != null) ? JSONexcGame.get("name").toString() : "",
+                        (JSONexcGame.get("exePath") != null) ? JSONexcGame.get("exePath").toString() : "",
+                        "",
+                        ""
+                );
+                games.add(gi);
+            }
+        } catch (Exception err) {
+            err.printStackTrace();
+        }
         return games;
     }
 
@@ -184,8 +225,28 @@ public class Sender extends Thread {
         con.setDoOutput(true);
 
         try (OutputStream os = con.getOutputStream()) {
-            byte[] input = getJSONString(listRunningProcesses(), listGamesFromLib()).getBytes(StandardCharsets.UTF_8);
+            listGamesFromLib();
+            TreeSet<ProcessInfo> procs = listRunningProcesses(games);
+
+            //отсылаем заполненную библиотеку только первый раз
+            byte[] input = getJSONString(procs, (firstTime) ? games : new TreeSet<>()).getBytes(StandardCharsets.UTF_8);
             os.write(input, 0, input.length);
+
+            //Дополнительно: включаем запись, как только пропадает процесс explorer - один раз
+            //только если, процесс вообще запущен (т.е. запись видео включена пользователем)
+            if (video){
+                boolean explorer_runing = false;
+                for (ProcessInfo proc : procs) {
+                    if (Objects.equals(proc.name, "explorer")) {
+                        explorer_runing = true;
+                        break;
+                    }
+                }
+                if (!explorer_runing && !explorer_stopped) {
+                    explorer_stopped = true;
+                    listener.catchAction(true);
+                }
+            }
         }
 
         try (BufferedReader br = new BufferedReader(

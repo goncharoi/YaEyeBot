@@ -3,7 +3,6 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
-import javax.swing.text.StyleConstants;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
@@ -15,6 +14,7 @@ import java.util.function.Predicate;
 
 public class Recorder extends Thread {
     String inPath = "video\\latest";
+    String outPath = "video\\records";
     String outFNameStorage = "video\\previousRecordTime.txt";
     byte fps;
     int duration;
@@ -45,7 +45,7 @@ public class Recorder extends Thread {
         }
 
         try {
-            Runtime.getRuntime().exec("Forfiles -p video -s -m *.mp4 -d -" + videosLifeDays + " -c \"cmd /c del /q @path\"");
+            Runtime.getRuntime().exec("Forfiles -p " + outPath + " -s -m *.mp4 -d -" + videosLifeDays + " -c \"cmd /c del /q @path\"");
         } catch (IOException ex) {
             ex.printStackTrace();
         }
@@ -56,7 +56,7 @@ public class Recorder extends Thread {
                     "-c:v libx264 -preset ultrafast -crf 23 " +
                     "-pix_fmt yuv420p -r " + fps + " " +
                     "-hide_banner -y -v error -stats " +
-                    "video\\" + fName + ".mp4";
+                    outPath + "\\" + fName + ".mp4";
 
             System.out.println(commands);
             try {
