@@ -51,7 +51,7 @@ public class Main extends JFrame {
     protected Byte videosLifeDays = 1; //длительность хранения видеозаписей (в днях)
 
     public Main() throws IOException {
-        super("Отслеживание ПК v2.1.3");
+        super("Отслеживание ПК v2.1.4");
 
         //перенаправляем вывод в файлы
         System.setOut(new PrintStream(new FileOutputStream("video\\out.log")));
