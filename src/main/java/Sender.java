@@ -7,10 +7,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
-import java.util.Arrays;
-import java.util.Objects;
-import java.util.TreeSet;
-import java.util.UUID;
+import java.util.*;
 
 public class Sender extends Thread {
     //настройки отслеживания
@@ -111,11 +108,7 @@ public class Sender extends Thread {
     }
 
     protected TreeSet<GameInfo> listGamesFromLib() {
-        //получаем данные о библиотеке лишь один раз
-        if (firstTime)
-            firstTime = false;
-        else
-            return games;
+        TreeSet<GameInfo> games = new TreeSet<>();
         //получаем игры из библиотеки
         try {
             DBWorker DBW = new DBWorker((!Objects.equals(dbPath, "")) ? dbPath : dbPathDefault);
@@ -208,12 +201,15 @@ public class Sender extends Thread {
         JSONObject mainObj = new JSONObject();
         mainObj.put("message", message);
 
-        return mainObj.toJSONString();
+        String result = mainObj.toJSONString();
+
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Сформированы данные для отправки\n");
+        System.out.println(result);
+
+        return result;
     }
 
     protected void sendPOST() throws IOException {
-        System.out.println("пошла отправка...");
-
         URL url = new URL("https://bbb.daobots.ru/YaEyebot.php");
         HttpURLConnection con = (HttpURLConnection) url.openConnection();
 
@@ -225,7 +221,8 @@ public class Sender extends Thread {
         con.setDoOutput(true);
 
         try (OutputStream os = con.getOutputStream()) {
-            listGamesFromLib();
+            //получаем данные о библиотеке лишь один раз
+            if (firstTime) games = listGamesFromLib();
             TreeSet<ProcessInfo> procs = listRunningProcesses(games);
 
             //отсылаем заполненную библиотеку только первый раз
@@ -247,6 +244,8 @@ public class Sender extends Thread {
                     listener.catchAction(true);
                 }
             }
+        } catch (Exception err) {
+            err.printStackTrace();
         }
 
         try (BufferedReader br = new BufferedReader(
@@ -257,7 +256,11 @@ public class Sender extends Thread {
                 response.append(responseLine.trim());
             }
             System.out.println(response);
+        } catch (Exception err) {
+            err.printStackTrace();
         }
         con.disconnect();
+
+        firstTime = false;
     }
 }

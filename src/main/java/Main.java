@@ -9,10 +9,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionListener;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.UnknownHostException;
@@ -49,12 +46,17 @@ public class Main extends JFrame {
     protected String pcGuid = "";
     protected Boolean video = false; //видеозапись сессий включена
     protected Byte fps = 1; //частота кадров/сек. видеозаписи сессий
-    protected Byte minutesToFreeze = 3; //максимальная пуаза в движении, после которой может начаться новая видеозапись (в минутах)
+    protected Byte minutesToFreeze = 3; //максимальная пауза в движении, после которой может начаться новая видеозапись (в минутах)
     protected Integer duration = 15; //максимальная длительность одной видеозаписи (в минутах)
     protected Byte videosLifeDays = 1; //длительность хранения видеозаписей (в днях)
 
     public Main() throws IOException {
         super("Отслеживание ПК v2.1.3");
+
+        //перенаправляем вывод в файлы
+        System.setOut(new PrintStream(new FileOutputStream("video\\out.log")));
+        System.setErr(new PrintStream(new FileOutputStream("video\\err.log")));
+
         iconTr = new TrayIcon(ImageIO.read(new File("icon.png")), "Отслеживание ПК");
         iconTr.addActionListener(ev -> {
             setVisible(true);

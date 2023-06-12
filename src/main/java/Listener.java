@@ -35,7 +35,7 @@ public class Listener extends Thread implements NativeMouseInputListener {
         //начинаем писать после ... мсек простоя, если еще не начали
         if ((wakedUp || recording) && !force) return;
 
-        System.out.println("Запись пошла");
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Начата запись видео\n");
         recorder = new Recorder(firstTime, fps, duration, videosLifeDays);
         firstTime = false;
         recorder.start();

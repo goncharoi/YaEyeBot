@@ -58,7 +58,9 @@ public class Recorder extends Thread {
                     "-hide_banner -y -v error -stats " +
                     outPath + "\\" + fName + ".mp4";
 
+            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Делаем видос из снимков\n");
             System.out.println(commands);
+
             try {
                 Runtime.getRuntime().exec(commands);
                 //очищаем дату и время начала записи для пользователя
