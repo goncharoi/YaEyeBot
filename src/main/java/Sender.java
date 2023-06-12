@@ -241,7 +241,8 @@ public class Sender extends Thread {
                 }
                 if (!explorer_runing && !explorer_stopped) {
                     explorer_stopped = true;
-                    listener.catchAction(true);
+                    System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись\n");
+                    listener.catchAction();
                 }
             }
         } catch (Exception err) {

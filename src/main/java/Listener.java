@@ -22,10 +22,10 @@ public class Listener extends Thread implements NativeMouseInputListener {
     }
 
     public void nativeMouseMoved(NativeMouseEvent e) {
-        catchAction(false);
+        catchAction();
     }
 
-    public void catchAction(boolean force){
+    public void catchAction(){
         long now = new Date().getTime();
         boolean wakedUp = (now - lastMoving < millsToFreeze);
         boolean recording = (recorder != null && recorder.isAlive());
@@ -33,7 +33,7 @@ public class Listener extends Thread implements NativeMouseInputListener {
         lastMoving = now;
 
         //начинаем писать после ... мсек простоя, если еще не начали
-        if ((wakedUp || recording) && !force) return;
+        if (wakedUp || recording) return;
 
         System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Начата запись видео\n");
         recorder = new Recorder(firstTime, fps, duration, videosLifeDays);
