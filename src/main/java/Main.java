@@ -5,10 +5,7 @@ import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseMotionListener;
-import java.awt.event.WindowEvent;
-import java.awt.event.WindowListener;
+import java.awt.event.*;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -27,11 +24,12 @@ public class Main extends JFrame {
     public boolean chetTray = false; //переменная, чтобы был вывод сообщения в трее только при первом сворачивании
     private Sender sender;
     private Listener listener;
+    private Chat chat;
 
     protected JLabel pcNameLabel, userIdLabel, dbPathLabel, approveLabel, fpsLabel, mtfLabel1, mtfLabel2, durationLabel, vldLabel;
     protected JTextField pcNameField, userIdField, dbPathField, fpsField, mtfField, durationField, vldField;
     protected JButton dbPathButton, approveButton;
-    protected JCheckBox videoCheckBox;
+    protected JCheckBox videoCheckBox, chatCheckBox;
     protected JHyperlink goToBot, goToChat, toVideoDir;
     protected JLabel qrToBotLabel, qrToChatLabel;
 
@@ -45,13 +43,14 @@ public class Main extends JFrame {
     protected String dbPath = ""; //путь к библиотеке игр МТС-лаунчера
     protected String pcGuid = "";
     protected Boolean video = false; //видеозапись сессий включена
+    protected Boolean chatFlag = false; //чат с владельцем включен
     protected Byte fps = 1; //частота кадров/сек. видеозаписи сессий
     protected Byte minutesToFreeze = 3; //максимальная пауза в движении, после которой может начаться новая видеозапись (в минутах)
     protected Integer duration = 15; //максимальная длительность одной видеозаписи (в минутах)
     protected Byte videosLifeDays = 1; //длительность хранения видеозаписей (в днях)
 
     public Main() throws IOException {
-        super("Отслеживание ПК v2.1.4");
+        super("Отслеживание ПК v2.1.5");
 
         //перенаправляем вывод в файлы
         System.setOut(new PrintStream(new FileOutputStream("video\\out.log")));
@@ -91,6 +90,7 @@ public class Main extends JFrame {
         if (!Objects.equals(pcGuid, "")) {
             listener = new Listener(fps, minutesToFreeze, duration, videosLifeDays);
             sender = new Sender(listener, video, pcName, userId, filterServices, timeout, dbPath, pcGuid);
+            if (chatFlag) chat = new Chat(pcName, userId, pcGuid);
         }
     }
 
@@ -132,6 +132,10 @@ public class Main extends JFrame {
                 dbPathField.setText(dbPath);
             }
         });
+
+        // --галка включения чата с владельцем ПК
+        chatCheckBox = new JCheckBox("Позволить вызывать диалог с владельцем");
+        chatCheckBox.setSelected(chatFlag);
 
         //Настройки видеозаписи
         // --галка включения видеозаписи
@@ -210,6 +214,9 @@ public class Main extends JFrame {
         optionsPanel.add(dbPathButton, constraints);
         optionsPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(), "Основные настройки"));
+        constraints.gridx = 0;
+        constraints.gridy = 4;
+        optionsPanel.add(chatCheckBox, constraints);
 
         // --панель настроек видеозаписи сессий
         JPanel videoPanel = new JPanel(new GridBagLayout());
@@ -286,7 +293,7 @@ public class Main extends JFrame {
         vldField.setEnabled(videoCheckBox.isSelected());
         if (videoCheckBox.isSelected() && showMsg)
             JOptionPane.showMessageDialog(null,
-                    "Не забудьте включить папку video в исключения ПО,"+
+                    "Не забудьте включить папку video в исключения ПО," +
                             "\nсохраняющего дефолтное состояние ПК (см. ссылку)");
     }
 
@@ -295,7 +302,7 @@ public class Main extends JFrame {
         String msg = "";
         if (Objects.equals(pcNameField.getText(), "")) msg = "Уникальное имя ПК - обязательное поле";
         if (Objects.equals(userIdField.getText(), "")) msg = "Ваш id в телеграмм - обязательное поле";
-        if (videoCheckBox.isSelected()){
+        if (videoCheckBox.isSelected()) {
             if (Objects.equals(fpsField.getText(), "")) msg = "Частота кадров - обязательное поле";
             if (Objects.equals(mtfField.getText(), "")) msg = "Задержка - обязательное поле";
             if (Objects.equals(durationField.getText(), "")) msg = "Длительность записи - обязательное поле";
@@ -316,6 +323,8 @@ public class Main extends JFrame {
             jo.put("filterServices", (filterServices) ? "1" : "0");
             jo.put("timeout", timeout.toString());
             jo.put("dbPath", dbPathField.getText());
+            jo.put("chatFlag", (chatCheckBox.isSelected()) ? "1" : "0");
+            //видео-настройки
             jo.put("video", (videoCheckBox.isSelected()) ? "1" : "0");
             jo.put("fps", fpsField.getText());
             jo.put("minutesToFreeze", mtfField.getText());
@@ -363,7 +372,7 @@ public class Main extends JFrame {
         }
 
         app = new Main();
-        app.setSize(700, 800);
+        app.setSize(750, 800);
         app.setResizable(false);
         //если pcGuid уже выделен - сворачиваем в трей
         if (!Objects.equals(app.pcGuid, "")) {
@@ -410,9 +419,10 @@ public class Main extends JFrame {
     }
 
     public void onExit() {
-        if (app.listener != null && app.sender != null) {
-            app.listener.finish();
-            app.sender.interrupt();
+        if (chat != null) chat.finish();
+        if (listener != null && sender != null) {
+            listener.finish();
+            sender.interrupt();
             //перед выходом - отпускаем порт
             try {
                 lock.close();
@@ -445,6 +455,10 @@ public class Main extends JFrame {
             dbPath = (jsonObject.get("dbPath") != null) ? jsonObject.get("dbPath").toString() : "";
             pcGuid = (jsonObject.get("pcGuid") != null) ? jsonObject.get("pcGuid").toString() : "";
 
+            //чат с владельцем
+            chatFlag = (jsonObject.get("chatFlag") != null) &&
+                    Objects.equals(jsonObject.get("chatFlag").toString(), "1");
+
             //настройки видеозаписи сессий
             video = (jsonObject.get("video") != null) &&
                     Objects.equals(jsonObject.get("video").toString(), "1");
@@ -471,9 +485,11 @@ public class Main extends JFrame {
         }
 
         private fieldType ft;
+
         public NumVerifier(fieldType ft) {
             this.ft = ft;
         }
+
         public boolean verify(JComponent input) {
             try {
                 switch (ft) {

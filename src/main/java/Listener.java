@@ -25,7 +25,7 @@ public class Listener extends Thread implements NativeMouseInputListener {
         catchAction();
     }
 
-    public void catchAction(){
+    public void catchAction() {
         long now = new Date().getTime();
         boolean wakedUp = (now - lastMoving < millsToFreeze);
         boolean recording = (recorder != null && recorder.isAlive());
@@ -50,11 +50,13 @@ public class Listener extends Thread implements NativeMouseInputListener {
     public void run() {
         (new Recorder(false, fps, duration, videosLifeDays)).encodePreviousVideo();
 
-        try {
-            GlobalScreen.registerNativeHook();
-        } catch (NativeHookException ex) {
-            ex.printStackTrace();
-            return;
+        if (!GlobalScreen.isNativeHookRegistered()) {
+            try {
+                GlobalScreen.registerNativeHook();
+            } catch (NativeHookException ex) {
+                ex.printStackTrace();
+                return;
+            }
         }
 
         GlobalScreen.addNativeMouseMotionListener(this);
