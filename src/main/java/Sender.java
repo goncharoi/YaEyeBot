@@ -24,9 +24,11 @@ public class Sender extends Thread {
     protected Listener listener;
     protected boolean explorer_stopped = false;
     protected boolean video;
+    protected ASListener asListener;
+    protected boolean saves;
     protected TreeSet<GameInfo> games = new TreeSet<>();
 
-    public Sender(Listener listener, Boolean video, String pcName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
+    public Sender(Listener listener, Boolean video, ASListener asListener, Boolean saves, String pcName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
         super();
         //заполнение настроек
         this.pcName = pcName;
@@ -37,6 +39,8 @@ public class Sender extends Thread {
         this.pcGuid = pcGuid;
         this.listener = listener;
         this.video = video;
+        this.asListener = asListener;
+        this.saves = saves;
     }
 
     @Override
@@ -75,22 +79,22 @@ public class Sender extends Thread {
 
                 info = line.split("[|&#^]", -1);
 
-                //часть игр запускаются из-под админа и путь для них не пишется, поэтому сверямся по библиотеке,
+                //часть игр запускаются из-под админа и путь для них не пишется, поэтому сверяемся по библиотеке,
                 //где эти игры могут быть добавлены через исключения в excGames.json
-                boolean found = false;
-                for (GameInfo game : games)
-                    if (game.gPath.contains(info[0].trim())) {
-                        found = true;
-                        break;
-                    }
+//                boolean found = false;
+//                for (GameInfo game : games)
+//                    if (game.gPath.contains(info[0].trim())) {
+//                        found = true;
+//                        break;
+//                    }
 
                 if (Arrays.stream(info).count() > 3) {
                     //отсекаем виндовские процессы и записи без exe
                     if (
                             (info[2].trim().startsWith("C:\\Windows\\") ||
-                                    info[1].trim().equals("0") ||
-                                    info[2].trim().equals("") && !found) &&
-                                    !info[0].trim().equals("explorer") //нужен для понимания входа игрока
+                                    info[1].trim().equals("0")
+//                                    || info[2].trim().equals("") && !found
+                            ) && !info[0].trim().equals("explorer") //нужен для понимания входа игрока
                     ) continue;
 
                     info[3] = info[3].trim().replaceAll(" ", "_"); //читаемое описание, если есть
@@ -118,7 +122,7 @@ public class Sender extends Thread {
             err.printStackTrace();
         }
         //добавляем игры из Steam
-        games.addAll(SteamReader.getSteamGames());
+        games.addAll(SteamReader.getSteamGames((!Objects.equals(dbPath, "")) ? dbPath : dbPathDefault));
 
         //добавляем игры-исключения или заменяем ими данные из библиотеки
         TreeSet<GameInfo> excGames = readExcGames();
@@ -222,7 +226,10 @@ public class Sender extends Thread {
 
         try (OutputStream os = con.getOutputStream()) {
             //получаем данные о библиотеке лишь один раз
-            if (firstTime) games = listGamesFromLib();
+            if (firstTime) {
+                games = listGamesFromLib();
+                if (saves) asListener.setGames(games);
+            }
             TreeSet<ProcessInfo> procs = listRunningProcesses(games);
 
             //отсылаем заполненную библиотеку только первый раз
@@ -231,19 +238,19 @@ public class Sender extends Thread {
 
             //Дополнительно: включаем запись, как только пропадает процесс explorer - один раз
             //только если, процесс вообще запущен (т.е. запись видео включена пользователем)
-            if (video){
-                boolean explorer_runing = false;
-                for (ProcessInfo proc : procs) {
-                    if (Objects.equals(proc.name, "explorer")) {
-                        explorer_runing = true;
-                        break;
-                    }
+            boolean explorer_runing = false;
+            for (ProcessInfo proc : procs) {
+                if (Objects.equals(proc.name, "explorer")) {
+                    explorer_runing = true;
+                    break;
                 }
-                if (!explorer_runing && !explorer_stopped) {
-                    explorer_stopped = true;
-                    System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись\n");
-                    listener.catchAction();
-                }
+            }
+            if (!explorer_runing && !explorer_stopped) {
+                explorer_stopped = true;
+                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись видео\n");
+                if (video) listener.catchAction();
+                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись сейвов\n");
+                if (saves) asListener.catchAction();
             }
         } catch (Exception err) {
             err.printStackTrace();

@@ -32,6 +32,26 @@ public class DBWorker {
 
         return games;
     }
+    public TreeSet<GameInfo> readDBSteam() throws SQLException {
+        Statement statmt = conn.createStatement();
+        ResultSet resSet = statmt.executeQuery("SELECT * FROM steam_saves_mappings");
+
+        TreeSet<GameInfo> games = new TreeSet<>();
+        while (resSet.next()) {
+            GameInfo gi = new GameInfo(
+                    resSet.getString("steam_id"),
+                    "",
+                    resSet.getString("saves_path"),
+                    ""
+            );
+            games.add(gi);
+        }
+
+        resSet.close();
+        statmt.close();
+
+        return games;
+    }
 
     // --------Закрытие--------
     public void closeDB() throws ClassNotFoundException, SQLException {

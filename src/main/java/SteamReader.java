@@ -5,12 +5,13 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.sql.SQLException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 class SteamReader {
-    public static TreeSet<GameInfo> getSteamGames() {
+    public static TreeSet<GameInfo> getSteamGames(String dbPath) {
         ArrayList<SteamReader.AppInfo> apps;
         TreeSet<GameInfo> games = new TreeSet<>();
         try {
@@ -19,16 +20,36 @@ class SteamReader {
             ex.printStackTrace();
             return games;
         }
+        //получаем пути сейвов из библиотеки
+        TreeSet<GameInfo> libMappings = new TreeSet<>();
+        try {
+            DBWorker DBW = new DBWorker(dbPath.replace("UserGame", "GameMapper"));
+            libMappings = DBW.readDBSteam();
+            DBW.closeDB();
+        } catch (ClassNotFoundException | SQLException err) {
+            err.printStackTrace();
+        }
 
         for (AppInfo appInfo : apps) {
+            String sPathSteam = "";
+            for (GameInfo libMapping : libMappings) {
+                System.out.printf("%1$tF %1$tT %2$s %3$s %4$s", new Date(), ":: Найдена папка сейвов для AppId ", libMapping.gName, " : " + libMapping.sPath + "\n" );
+                if (Objects.equals(appInfo.AppId, libMapping.gName)) {
+                    System.out.printf("%1$tF %1$tT %2$s %3$s %4$s", new Date(), ":: Папка сейвов прописана для AppId ", appInfo.Name, " : " + libMapping.sPath + "\n" );
+                    sPathSteam = libMapping.sPath;
+                    break;
+                }
+            }
             GameInfo gi = new GameInfo(
                     appInfo.Name,
                     appInfo.Executable,
                     "STEAM",
-                    appInfo.BuildId
+                    appInfo.BuildId,
+                    sPathSteam
             );
             games.add(gi);
         }
+
         return games;
     }
 
@@ -72,6 +93,7 @@ class SteamReader {
             appInfo = new AppInfo();
             appInfo.Name = dic.get("name");
             appInfo.BuildId = dic.get("buildid");
+            appInfo.AppId = dic.get("appid");
 
             appInfo.GameRoot = Path.combine((new File(appMetaFile)).getParent(), "common", dic.get("installdir"));
             if (!(new File(appInfo.GameRoot)).isDirectory()) {
@@ -204,6 +226,7 @@ class SteamReader {
         public String GameRoot;
         public String Executable;
         public String BuildId;
+        public String AppId;
     }
 
     private static class Directory {

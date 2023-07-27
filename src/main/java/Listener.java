@@ -15,6 +15,8 @@ public class Listener extends Thread implements NativeMouseInputListener {
     protected Byte videosLifeDays; //длительность хранения видеозаписей (в днях)
 
     public Listener(Byte fps, Byte minutesToFreeze, Integer duration, Byte videosLifeDays) {
+        super();
+
         this.millsToFreeze = minutesToFreeze * 60 * 1000;
         this.fps = fps;
         this.duration = duration;

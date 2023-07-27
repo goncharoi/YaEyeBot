@@ -1,3 +1,4 @@
+import org.apache.commons.io.FileUtils;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 
@@ -10,6 +11,8 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -24,12 +27,13 @@ public class Main extends JFrame {
     public boolean chetTray = false; //переменная, чтобы был вывод сообщения в трее только при первом сворачивании
     private Sender sender;
     private Listener listener;
+    private ASListener asListener;
     private Chat chat;
 
-    protected JLabel pcNameLabel, userIdLabel, dbPathLabel, approveLabel, fpsLabel, mtfLabel1, mtfLabel2, durationLabel, vldLabel;
-    protected JTextField pcNameField, userIdField, dbPathField, fpsField, mtfField, durationField, vldField;
-    protected JButton dbPathButton, approveButton;
-    protected JCheckBox videoCheckBox, chatCheckBox;
+    protected JLabel pcNameLabel, userIdLabel, dbPathLabel, dstPathLabel, approveLabel, fpsLabel, mtfLabel1, mtfLabel2, durationLabel, offsetLabel, vldLabel, sldLabel;
+    protected JTextField pcNameField, userIdField, dbPathField, dstPathField, fpsField, mtfField, durationField, offsetField, vldField, sldField;
+    protected JButton dbPathButton, dstPathButton, approveButton;
+    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox;
     protected JHyperlink goToBot, goToChat, toVideoDir;
     protected JLabel qrToBotLabel, qrToChatLabel;
 
@@ -48,13 +52,18 @@ public class Main extends JFrame {
     protected Byte minutesToFreeze = 3; //максимальная пауза в движении, после которой может начаться новая видеозапись (в минутах)
     protected Integer duration = 15; //максимальная длительность одной видеозаписи (в минутах)
     protected Byte videosLifeDays = 1; //длительность хранения видеозаписей (в днях)
+    protected Boolean saves = false; //запись сейвов включена
+    protected String dstPath = ""; //папка сохранений
+    protected Byte savesLifeDays = 3; //сколько хранить сейвы прошлых сессий (дней)
+    protected Integer offset = 10; //сколько ждать перед началом записи сейвов (мин.)
 
     public Main() throws IOException {
-        super("Отслеживание ПК v2.1.5");
-
+        super("Отслеживание ПК v2.1.6");
+        //архивируем логи прошлой сессии
+        zipLogs();
         //перенаправляем вывод в файлы
-        System.setOut(new PrintStream(new FileOutputStream("video\\out.log")));
-        System.setErr(new PrintStream(new FileOutputStream("video\\err.log")));
+        System.setOut(new PrintStream(new FileOutputStream("video\\logs\\latest\\out.log")));
+        System.setErr(new PrintStream(new FileOutputStream("video\\logs\\latest\\err.log")));
 
         iconTr = new TrayIcon(ImageIO.read(new File("icon.png")), "Отслеживание ПК");
         iconTr.addActionListener(ev -> {
@@ -88,10 +97,27 @@ public class Main extends JFrame {
 
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
+            asListener = new ASListener(dstPath, offset, savesLifeDays);
             listener = new Listener(fps, minutesToFreeze, duration, videosLifeDays);
-            sender = new Sender(listener, video, pcName, userId, filterServices, timeout, dbPath, pcGuid);
+            sender = new Sender(listener, video, asListener, saves, pcName, userId, filterServices, timeout, dbPath, pcGuid);
             if (chatFlag) chat = new Chat(pcName, userId, pcGuid);
         }
+    }
+
+    public void zipLogs() {
+        //удаляем старые логи
+        try {
+            Runtime.getRuntime().exec("Forfiles -p " + "video\\logs" + " -s -m *.zip -d -" + 1 + " -c \"cmd /c del /q @path\"");
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        //архивируем логи прошлой сессии
+        SimpleDateFormat formater = new SimpleDateFormat("dd.MM.yyyy_HH.mm");
+        String fName = formater.format(new Date());
+        ZippingVisitor.zipWalking(
+                new File("video\\logs\\latest").toPath(),
+                new File("video\\logs\\" + fName + ".zip").toPath()
+        );
     }
 
     public void initFace() {
@@ -154,13 +180,13 @@ public class Main extends JFrame {
         mtfField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));
         mtfField.setColumns(2);
         mtfField.setText(minutesToFreeze.toString());
-        // --частота кадров
+        // --максимальная длительность одной видеозаписи
         durationLabel = new JLabel("Максимальная длительность одной видеозаписи (в минутах)");
         durationField = new NumericTextField();
         durationField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.INT));
         durationField.setColumns(3);
         durationField.setText(duration.toString());
-        // --частота кадров
+        // --длительность хранения видеозаписей
         vldLabel = new JLabel("Длительность хранения видеозаписей (в днях) ");
         vldField = new NumericTextField();
         vldField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));
@@ -170,8 +196,44 @@ public class Main extends JFrame {
         videoCheckBox.addActionListener(e -> onVideoCheckBox(true));
         onVideoCheckBox(false);
 
+        //Настройки записи сейвов
+        // --галка включения записи
+        savesCheckBox = new JCheckBox("Хранить сейвы между сессиями");
+        savesCheckBox.setSelected(saves);
+        // --путь к папке хранилища
+        dstPathLabel = new JLabel("Папка для хранения сейвов");
+        dstPathField = new JTextField(dstPath, 35);
+        dstPathField.setEnabled(false); //вручную вводить нельзя
+        dstPathButton = new JButton("Указать папку");
+        dstPathButton.addActionListener(e -> {
+            JFileChooser fileChooser = new JFileChooser(dstPath);
+            fileChooser.setDialogTitle("Укажите папку для хранения сейвов");
+            fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            int ret = fileChooser.showDialog(null, "Ok");
+            if (ret == JFileChooser.APPROVE_OPTION) {
+                dstPath = fileChooser.getSelectedFile().getAbsolutePath();
+                dstPathField.setText(dstPath);
+            }
+        });
+        // --сколько ждать перед началом записи
+        offsetLabel = new JLabel("Сколько ждать перед началом записи (в минутах)");
+        offsetField = new NumericTextField();
+        offsetField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.INT));
+        offsetField.setColumns(3);
+        offsetField.setText(offset.toString());
+        // --длительность хранения сейвов
+        sldLabel = new JLabel("Длительность хранения сейвов (в днях) ");
+        sldField = new NumericTextField();
+        sldField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));
+        sldField.setColumns(2);
+        sldField.setText(savesLifeDays.toString());
+        //включение/отключение полей
+        savesCheckBox.addActionListener(e -> onSavesCheckBox(true));
+        onSavesCheckBox(false);
+
+
         // --ссылки
-        goToBot = new JHyperlink("Телеграм-бот для отчетов программы (так же выдает id пользователя)",
+        goToBot = new JHyperlink("Бот для отчетов (так же выдает id пользователя)",
                 "https://t.me/YaEyebot?start");
         qrToBotLabel = new JLabel();
         qrToBotLabel.setIcon(new ImageIcon("QRbot.png"));
@@ -256,6 +318,35 @@ public class Main extends JFrame {
         videoPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(), "Настройки видеозаписи сессий"));
 
+        // --панель настроек видеозаписи сессий
+        JPanel savesPanel = new JPanel(new GridBagLayout());
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        savesPanel.add(savesCheckBox, constraints);
+
+        constraints.gridx = 0;
+        constraints.gridy = 1;
+        savesPanel.add(dstPathLabel, constraints);
+        constraints.gridx = 1;
+        savesPanel.add(dstPathField, constraints);
+        constraints.gridx = 1;
+        constraints.gridy = 2;
+        savesPanel.add(dstPathButton, constraints);
+
+        constraints.gridx = 0;
+        constraints.gridy = 3;
+        savesPanel.add(offsetLabel, constraints);
+        constraints.gridx = 1;
+        savesPanel.add(offsetField, constraints);
+
+        constraints.gridx = 0;
+        constraints.gridy = 4;
+        savesPanel.add(sldLabel, constraints);
+        constraints.gridx = 1;
+        savesPanel.add(sldField, constraints);
+        savesPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(), "Настройки записи сейвов"));
+
         // --кнопка подтверждения
         JPanel approve = new JPanel(new GridBagLayout());
         constraints.gridx = 0;
@@ -263,6 +354,21 @@ public class Main extends JFrame {
         approve.add(approveLabel, constraints);
         constraints.gridy = 1;
         approve.add(approveButton, constraints);
+
+        // --контакты
+        JPanel linksPanel = new JPanel(new GridBagLayout());
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        linksPanel.add(goToBot, constraints);
+        constraints.gridx = 1;
+        linksPanel.add(goToChat, constraints);
+        constraints.gridx = 0;
+        constraints.gridy = 1;
+        linksPanel.add(qrToBotLabel, constraints);
+        constraints.gridx = 1;
+        linksPanel.add(qrToChatLabel, constraints);
+        linksPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(), "Полезные ссылки"));
 
         //собираем вместе
         JPanel bodyPanel = new JPanel(new GridBagLayout());
@@ -272,13 +378,9 @@ public class Main extends JFrame {
         constraints.gridy = 1;
         bodyPanel.add(videoPanel, constraints);
         constraints.gridy = 2;
-        bodyPanel.add(goToBot, constraints);
+        bodyPanel.add(savesPanel, constraints);
         constraints.gridy = 3;
-        bodyPanel.add(qrToBotLabel, constraints);
-        constraints.gridy = 4;
-        bodyPanel.add(goToChat, constraints);
-        constraints.gridy = 5;
-        bodyPanel.add(qrToChatLabel, constraints);
+        bodyPanel.add(linksPanel, constraints);
 
         JPanel mainPanel = new JPanel(new BorderLayout());
         mainPanel.add(bodyPanel, BorderLayout.NORTH);
@@ -295,6 +397,16 @@ public class Main extends JFrame {
             JOptionPane.showMessageDialog(null,
                     "Не забудьте включить папку video в исключения ПО," +
                             "\nсохраняющего дефолтное состояние ПК (см. ссылку)");
+    }
+
+    private void onSavesCheckBox(boolean showMsg) {
+        dstPathField.setEnabled(savesCheckBox.isSelected());
+        durationField.setEnabled(savesCheckBox.isSelected());
+        vldField.setEnabled(savesCheckBox.isSelected());
+        if (savesCheckBox.isSelected() && showMsg)
+            JOptionPane.showMessageDialog(null,
+                    "Не забудьте включить выбранную папку в исключения ПО," +
+                            "\nсохраняющего дефолтное состояние ПК");
     }
 
     private void onApproveNewSettings() {
@@ -332,6 +444,11 @@ public class Main extends JFrame {
             jo.put("videosLifeDays", vldField.getText());
             //генерация pcGuid если он пустой
             jo.put("pcGuid", (Objects.equals(pcGuid, "")) ? UUID.randomUUID().toString() : pcGuid);
+            //настройки сейвов
+            jo.put("saves", (savesCheckBox.isSelected()) ? "1" : "0");
+            jo.put("dstPath", dstPathField.getText());
+            jo.put("offset", offsetField.getText());
+            jo.put("savesLifeDays", sldField.getText());
 
             fw.write(jo.toJSONString());
             fw.close();
@@ -372,7 +489,7 @@ public class Main extends JFrame {
         }
 
         app = new Main();
-        app.setSize(750, 800);
+        app.setSize(750, 900);
         app.setResizable(false);
         //если pcGuid уже выделен - сворачиваем в трей
         if (!Objects.equals(app.pcGuid, "")) {
@@ -407,9 +524,9 @@ public class Main extends JFrame {
         });
 
         //запускаем пересылку данных и отслеживание мыши для захвата видео при движении
-        if (app.listener != null && app.sender != null) {
-            if (app.video) app.listener.start();
-
+        if (app.listener != null && app.video) app.listener.start();
+        if (app.asListener != null && app.saves) app.asListener.start();
+        if (app.sender != null) {
             app.sender.setDaemon(true);
             app.sender.start();
         }
@@ -420,15 +537,15 @@ public class Main extends JFrame {
 
     public void onExit() {
         if (chat != null) chat.finish();
-        if (listener != null && sender != null) {
-            listener.finish();
-            sender.interrupt();
-            //перед выходом - отпускаем порт
-            try {
-                lock.close();
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
+        if (listener != null) listener.finish();
+        if (sender != null) sender.interrupt();
+        if (asListener != null) asListener.finish();
+
+        //перед выходом - отпускаем порт
+        try {
+            lock.close();
+        } catch (IOException ex) {
+            ex.printStackTrace();
         }
     }
 
@@ -474,6 +591,17 @@ public class Main extends JFrame {
             videosLifeDays = (jsonObject.get("videosLifeDays") != null)
                     ? Byte.valueOf(jsonObject.get("videosLifeDays").toString())
                     : 1;
+
+            //настройки хранения сейвов
+            saves = (jsonObject.get("saves") != null) &&
+                    Objects.equals(jsonObject.get("saves").toString(), "1");
+            dstPath = (jsonObject.get("dstPath") != null) ? jsonObject.get("dstPath").toString() : "";
+            offset = (jsonObject.get("offset") != null)
+                    ? Integer.parseInt(jsonObject.get("offset").toString())
+                    : 10;
+            savesLifeDays = (jsonObject.get("savesLifeDays") != null)
+                    ? Byte.valueOf(jsonObject.get("savesLifeDays").toString())
+                    : 3;
         } catch (Exception err) {
             err.printStackTrace();
         }
