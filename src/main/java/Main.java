@@ -1,4 +1,3 @@
-import org.apache.commons.io.FileUtils;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 
@@ -6,7 +5,10 @@ import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionListener;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -30,8 +32,8 @@ public class Main extends JFrame {
     private ASListener asListener;
     private Chat chat;
 
-    protected JLabel pcNameLabel, userIdLabel, dbPathLabel, dstPathLabel, approveLabel, fpsLabel, mtfLabel1, mtfLabel2, durationLabel, offsetLabel, vldLabel, sldLabel;
-    protected JTextField pcNameField, userIdField, dbPathField, dstPathField, fpsField, mtfField, durationField, offsetField, vldField, sldField;
+    protected JLabel pcNameLabel, mtsNameLabel, userIdLabel, dbPathLabel, dstPathLabel, approveLabel, fpsLabel, durationLabel, offsetLabel, vldLabel, sldLabel;
+    protected JTextField pcNameField, mtsNameField, userIdField, dbPathField, dstPathField, fpsField, durationField, offsetField, vldField, sldField;
     protected JButton dbPathButton, dstPathButton, approveButton;
     protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox;
     protected JHyperlink goToBot, goToChat, toVideoDir;
@@ -39,6 +41,7 @@ public class Main extends JFrame {
 
     //настройки отслеживания
     protected String pcName = ""; //имя отслеживаемого ПК
+    protected String mtsName = ""; //имя ПК на МТС Fog Play
     protected String userId = ""; //id пользователя телеграмма
     protected Boolean filterServices = true; //фильтровать процессы типа Services
     protected Byte timeout = 20; //отсылать данные раз в ... сек.
@@ -49,7 +52,6 @@ public class Main extends JFrame {
     protected Boolean video = false; //видеозапись сессий включена
     protected Boolean chatFlag = false; //чат с владельцем включен
     protected Byte fps = 1; //частота кадров/сек. видеозаписи сессий
-    protected Byte minutesToFreeze = 3; //максимальная пауза в движении, после которой может начаться новая видеозапись (в минутах)
     protected Integer duration = 15; //максимальная длительность одной видеозаписи (в минутах)
     protected Byte videosLifeDays = 1; //длительность хранения видеозаписей (в днях)
     protected Boolean saves = false; //запись сейвов включена
@@ -58,7 +60,7 @@ public class Main extends JFrame {
     protected Integer offset = 10; //сколько ждать перед началом записи сейвов (мин.)
 
     public Main() throws IOException {
-        super("Отслеживание ПК v2.1.6");
+        super("Отслеживание ПК v2.1.8");
         //архивируем логи прошлой сессии
         zipLogs();
         //перенаправляем вывод в файлы
@@ -98,8 +100,8 @@ public class Main extends JFrame {
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
             asListener = new ASListener(dstPath, offset, savesLifeDays);
-            listener = new Listener(fps, minutesToFreeze, duration, videosLifeDays);
-            sender = new Sender(listener, video, asListener, saves, pcName, userId, filterServices, timeout, dbPath, pcGuid);
+            listener = new Listener(fps, duration, videosLifeDays);
+            sender = new Sender(asListener, saves, pcName, mtsName, userId, filterServices, timeout, dbPath, pcGuid);
             if (chatFlag) chat = new Chat(pcName, userId, pcGuid);
         }
     }
@@ -107,7 +109,7 @@ public class Main extends JFrame {
     public void zipLogs() {
         //удаляем старые логи
         try {
-            Runtime.getRuntime().exec("Forfiles -p " + "video\\logs" + " -s -m *.zip -d -" + 1 + " -c \"cmd /c del /q @path\"");
+            Runtime.getRuntime().exec("Forfiles -p " + "video\\logs" + " -s -m *.zip -d -" + 3 + " -c \"cmd /c del /q @path\"");
         } catch (IOException ex) {
             ex.printStackTrace();
         }
@@ -133,6 +135,9 @@ public class Main extends JFrame {
             }
         }
         pcNameField = new JTextField(pcName, 20);
+        // --имя ПК на сайте МТС
+        mtsNameLabel = new JLabel("Введите имя ПК на МТС Fog Play");
+        mtsNameField = new JTextField(mtsName, 20);
         //если pcGuid уже выделен - запрещаем смену имени
         if (!Objects.equals(pcGuid, "")) pcNameField.setEnabled(false);
 
@@ -173,13 +178,6 @@ public class Main extends JFrame {
         fpsField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));
         fpsField.setColumns(3);
         fpsField.setText(fps.toString());
-        // --максимальная пуаза
-        mtfLabel1 = new JLabel("Минимальная пуаза в движении, после которой");
-        mtfLabel2 = new JLabel("может начаться новая видеозапись (в минутах)");
-        mtfField = new NumericTextField();
-        mtfField.setInputVerifier(new NumVerifier(NumVerifier.fieldType.BYTE));
-        mtfField.setColumns(2);
-        mtfField.setText(minutesToFreeze.toString());
         // --максимальная длительность одной видеозаписи
         durationLabel = new JLabel("Максимальная длительность одной видеозаписи (в минутах)");
         durationField = new NumericTextField();
@@ -279,6 +277,11 @@ public class Main extends JFrame {
         constraints.gridx = 0;
         constraints.gridy = 4;
         optionsPanel.add(chatCheckBox, constraints);
+        constraints.gridx = 0;
+        constraints.gridy = 5;
+        optionsPanel.add(mtsNameLabel, constraints);
+        constraints.gridx = 1;
+        optionsPanel.add(mtsNameField, constraints);
 
         // --панель настроек видеозаписи сессий
         JPanel videoPanel = new JPanel(new GridBagLayout());
@@ -295,23 +298,13 @@ public class Main extends JFrame {
 
         constraints.gridx = 0;
         constraints.gridy = 2;
-        constraints.insets = new Insets(inset, inset, 0, inset);
-        videoPanel.add(mtfLabel1, constraints);
-        constraints.gridx = 1;
-        videoPanel.add(mtfField, constraints);
-        constraints.gridx = 0;
-        constraints.gridy = 3;
-        constraints.insets = new Insets(0, inset, inset, inset);
-        videoPanel.add(mtfLabel2, constraints);
-
-        constraints.gridy = 4;
         constraints.insets = new Insets(inset, inset, inset, inset);
         videoPanel.add(durationLabel, constraints);
         constraints.gridx = 1;
         videoPanel.add(durationField, constraints);
 
         constraints.gridx = 0;
-        constraints.gridy = 5;
+        constraints.gridy = 3;
         videoPanel.add(vldLabel, constraints);
         constraints.gridx = 1;
         videoPanel.add(vldField, constraints);
@@ -390,7 +383,6 @@ public class Main extends JFrame {
 
     private void onVideoCheckBox(boolean showMsg) {
         fpsField.setEnabled(videoCheckBox.isSelected());
-        mtfField.setEnabled(videoCheckBox.isSelected());
         durationField.setEnabled(videoCheckBox.isSelected());
         vldField.setEnabled(videoCheckBox.isSelected());
         if (videoCheckBox.isSelected() && showMsg)
@@ -416,7 +408,6 @@ public class Main extends JFrame {
         if (Objects.equals(userIdField.getText(), "")) msg = "Ваш id в телеграмм - обязательное поле";
         if (videoCheckBox.isSelected()) {
             if (Objects.equals(fpsField.getText(), "")) msg = "Частота кадров - обязательное поле";
-            if (Objects.equals(mtfField.getText(), "")) msg = "Задержка - обязательное поле";
             if (Objects.equals(durationField.getText(), "")) msg = "Длительность записи - обязательное поле";
             if (Objects.equals(vldField.getText(), "")) msg = "Срок хранения видео - обязательное поле";
 
@@ -431,6 +422,7 @@ public class Main extends JFrame {
 
             JSONObject jo = new JSONObject();
             jo.put("pcName", pcNameField.getText());
+            jo.put("mtsName", mtsNameField.getText());
             jo.put("userId", userIdField.getText());
             jo.put("filterServices", (filterServices) ? "1" : "0");
             jo.put("timeout", timeout.toString());
@@ -439,7 +431,6 @@ public class Main extends JFrame {
             //видео-настройки
             jo.put("video", (videoCheckBox.isSelected()) ? "1" : "0");
             jo.put("fps", fpsField.getText());
-            jo.put("minutesToFreeze", mtfField.getText());
             jo.put("duration", durationField.getText());
             jo.put("videosLifeDays", vldField.getText());
             //генерация pcGuid если он пустой
@@ -489,7 +480,7 @@ public class Main extends JFrame {
         }
 
         app = new Main();
-        app.setSize(750, 900);
+        app.setSize(750, 930);
         app.setResizable(false);
         //если pcGuid уже выделен - сворачиваем в трей
         if (!Objects.equals(app.pcGuid, "")) {
@@ -563,6 +554,7 @@ public class Main extends JFrame {
 
             //настройки передачи данных
             pcName = (jsonObject.get("pcName") != null) ? jsonObject.get("pcName").toString() : "";
+            mtsName = (jsonObject.get("mtsName") != null) ? jsonObject.get("mtsName").toString() : "";
             userId = (jsonObject.get("userId") != null) ? jsonObject.get("userId").toString() : "";
             filterServices = jsonObject.get("filterServices") == null &&
                     Objects.equals(jsonObject.get("filterServices").toString(), "1");
@@ -582,9 +574,6 @@ public class Main extends JFrame {
             fps = (jsonObject.get("fps") != null)
                     ? Byte.valueOf(jsonObject.get("fps").toString())
                     : 1;
-            minutesToFreeze = (jsonObject.get("minutesToFreeze") != null)
-                    ? Byte.valueOf(jsonObject.get("minutesToFreeze").toString())
-                    : 3;
             duration = (jsonObject.get("duration") != null)
                     ? Integer.parseInt(jsonObject.get("duration").toString())
                     : 5;
@@ -612,7 +601,7 @@ public class Main extends JFrame {
             INT, BYTE, LONG
         }
 
-        private fieldType ft;
+        private final fieldType ft;
 
         public NumVerifier(fieldType ft) {
             this.ft = ft;
@@ -621,17 +610,11 @@ public class Main extends JFrame {
         public boolean verify(JComponent input) {
             try {
                 switch (ft) {
-                    case INT:
-                        Integer.parseInt(((JTextField) input).getText());
-                        break;
-                    case BYTE:
-                        Byte.parseByte(((JTextField) input).getText());
-                        break;
-                    case LONG:
-                        Long.parseLong(((JTextField) input).getText());
-                        break;
-                    default:
-                        break;
+                    case INT -> Integer.parseInt(((JTextField) input).getText());
+                    case BYTE -> Byte.parseByte(((JTextField) input).getText());
+                    case LONG -> Long.parseLong(((JTextField) input).getText());
+                    default -> {
+                    }
                 }
                 input.setBackground(Color.WHITE);
                 return true;
