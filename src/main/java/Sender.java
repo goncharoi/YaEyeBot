@@ -6,6 +6,9 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.util.*;
 
@@ -13,7 +16,7 @@ public class Sender extends Thread {
     //настройки отслеживания
     protected String sessionUUID = UUID.randomUUID().toString(); //UUID сессии работы программы
     protected String pcName; //имя отслеживаемого ПК
-    protected String mtsName = ""; //имя ПК на МТС Fog Play
+    protected String mtsName; //имя ПК на МТС Fog Play
     protected String userId; //id пользователя телеграмма
     protected Boolean filterServices; //фильтровать процессы типа Services
     protected Byte timeout; //отсылать данные раз в ... сек.
@@ -28,8 +31,9 @@ public class Sender extends Thread {
     protected ASListener asListener;
     protected boolean saves;
     protected TreeSet<GameInfo> games = new TreeSet<>();
+    protected boolean hardware;
 
-    public Sender(ASListener asListener, Boolean saves, String pcName, String mtsName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid) {
+    public Sender(ASListener asListener, Boolean saves, String pcName, String mtsName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid, Boolean hardware) {
         super();
         //заполнение настроек
         this.pcName = pcName;
@@ -41,6 +45,7 @@ public class Sender extends Thread {
         this.pcGuid = pcGuid;
         this.asListener = asListener;
         this.saves = saves;
+        this.hardware = hardware;
     }
 
     @Override
@@ -72,10 +77,21 @@ public class Sender extends Thread {
             BufferedReader input = new BufferedReader
                     (new InputStreamReader(p.getInputStream(), "866"));
             int i = 0;
+            int start_line = 0;
+            int offset_begin = -1;
             while ((line = input.readLine()) != null) {
                 i++;
+
+                if (offset_begin < 0) {
+                    offset_begin = line.indexOf("ProcessName");
+                    start_line = i+2;
+                }
                 //отсекаем шапку
-                if (i < 4) continue;
+                if (i < start_line || offset_begin < 0 || line.length() < offset_begin)
+                    continue;
+
+                String pid = line.substring(0, offset_begin - 1).trim();
+                line = line.substring(offset_begin);
 
                 info = line.split("[|%#^]", -1);
 
@@ -90,7 +106,7 @@ public class Sender extends Thread {
                     info[0] = info[0].trim(); //техническое имя процесса
                     if (info[3].equals("")) info[3] = info[0];
 
-                    processes.add(new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim()));
+                    processes.add(new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim(), pid));
                 }
             }
             input.close();
@@ -98,6 +114,45 @@ public class Sender extends Thread {
             err.printStackTrace();
         }
         return processes;
+    }
+
+    protected TreeSet<ProcessInfo> filterProcesses(TreeSet<ProcessInfo> procs) {
+        TreeSet<ProcessInfo> processes = new TreeSet<>();
+        try {
+            String line;
+            String cmd = "cmdow_run.bat";
+            Process p = Runtime.getRuntime().exec(cmd);
+            BufferedReader input = new BufferedReader
+                    (new InputStreamReader(p.getInputStream(), "866"));
+            int i = 0;
+            int offset_begin = 0;
+            int offset_end = 0;
+            while ((line = input.readLine()) != null) {
+                i++;
+
+                if (i == 2) {
+                    offset_begin = line.indexOf("Lev")+3;
+                    offset_end = line.indexOf("-Window") - 1;
+                }
+
+                //отсекаем шапку
+                if (i < 3) continue;
+
+                String pid = line.substring(offset_begin, offset_end).trim();
+
+                for (ProcessInfo proc : procs) {
+                    if (Objects.equals(proc.pid, pid)) {
+//                        proc.window = true;
+                        processes.add(proc);
+                    }
+                }
+            }
+            input.close();
+        } catch (Exception err) {
+            err.printStackTrace();
+        }
+        return processes;
+//        return procs;
     }
 
     protected TreeSet<GameInfo> listGamesFromLib() {
@@ -118,6 +173,19 @@ public class Sender extends Thread {
         for (GameInfo excGame : excGames)
             games.removeIf(game -> Objects.equals(game.gName, excGame.gName));
         games.addAll(excGames);
+
+        //вычисляем актуальную версию ехе
+        for (GameInfo game : games) {
+            String version = "";
+            try {
+                version = EXEFileInfo.getVersionInfo(game.gPath);
+            } catch (Exception err) {
+                err.printStackTrace();
+            }
+            if (!version.equals(""))
+                game.gVers = version;
+        }
+
         return games;
     }
 
@@ -152,9 +220,66 @@ public class Sender extends Thread {
         return games;
     }
 
-    protected String getJSONString(TreeSet<ProcessInfo> procs, TreeSet<GameInfo> games) {
+    protected TreeSet<HardwareInfo> listHardwareInfo() {
+        TreeSet<HardwareInfo> hardware = new TreeSet<>();
+
+        if (!this.hardware) return hardware;
+
+        try {
+            String log_csv_name;
+
+            //получаем имя самого свежего csv-файла в папке OpenHardwareMonitor
+            Path dir = Paths.get("ohm");
+            if (Files.isDirectory(dir)) {
+                Optional<Path> opPath = Files.list(dir)
+                        .filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".csv"))
+                        .min((p1, p2) -> Long.compare(p2.toFile().lastModified(), p1.toFile().lastModified()));
+                if (opPath.isEmpty())
+                    return new TreeSet<>();
+                else
+                    log_csv_name = opPath.get().toString();
+            } else
+                return new TreeSet<>();
+
+            //берем первую (заголовки) и последнюю (текущие значения) строку
+            String current, param_names = null,  param_vals = null;
+            BufferedReader bufferedReader = new BufferedReader(new FileReader(log_csv_name));
+            int i = 0;
+            while ((current = bufferedReader.readLine()) != null) {
+                i++;
+                if (i == 1)
+                    param_names = current;
+                else
+                    param_vals = current;
+            }
+            bufferedReader.close();
+
+            if (param_names == null || param_vals == null)
+                return new TreeSet<>();
+
+            String[] param_param_names = param_names.split(",", -1);
+            String[] param_vals_arr = param_vals.split(",", -1);
+            //выбираем данные по всем температурам и загруженности устройств, кроме детальных и загруженности дисков
+            for (int j = 0; j < param_param_names.length; j++) {
+                if ((param_param_names[j].contains("temperature") || (param_param_names[j].contains("load") && !param_param_names[j].contains("hdd")))
+                        && param_param_names[j].endsWith("/0")
+                        && (!Objects.equals(param_vals_arr[j], ""))
+                ){
+                    hardware.add(new HardwareInfo(param_param_names[j], param_vals_arr[j]));
+                }
+            }
+        } catch (Exception err) {
+            err.printStackTrace();
+        }
+        return hardware;
+    }
+
+    protected String getJSONString(TreeSet<ProcessInfo> procs, TreeSet<GameInfo> games, TreeSet<HardwareInfo> hardware) {
         JSONArray jProcs = new JSONArray();
         JSONArray jGames = new JSONArray();
+        JSONArray jHardware = new JSONArray();
+
+        procs = filterProcesses(procs);
 
         //список процессов к отправке
         for (ProcessInfo next : procs) {
@@ -174,6 +299,13 @@ public class Sender extends Thread {
             jo.put("gVers", next.gVers);
             jGames.add(jo);
         }
+        //список параметров оборудования к отправке
+        for (HardwareInfo next : hardware) {
+            JSONObject jo = new JSONObject();
+            jo.put("name", next.name);
+            jo.put("value", next.value);
+            jHardware.add(jo);
+        }
 
         //сообщение
         JSONObject message = new JSONObject();
@@ -190,6 +322,8 @@ public class Sender extends Thread {
         message.put("procs", jProcs);
         //список игр
         message.put("games", jGames);
+        //список игр
+        message.put("hardware", jHardware);
 
         //пакет для сообщения
         JSONObject mainObj = new JSONObject();
@@ -223,7 +357,7 @@ public class Sender extends Thread {
             TreeSet<ProcessInfo> procs = listRunningProcesses();
 
             //отсылаем заполненную библиотеку только первый раз
-            byte[] input = getJSONString(procs, (firstTime) ? games : new TreeSet<>()).getBytes(StandardCharsets.UTF_8);
+            byte[] input = getJSONString(procs, (firstTime) ? games : new TreeSet<>(), listHardwareInfo()).getBytes(StandardCharsets.UTF_8);
             os.write(input, 0, input.length);
 
             //Дополнительно: включаем запись, как только пропадает процесс explorer - один раз

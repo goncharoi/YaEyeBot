@@ -2,9 +2,11 @@ import com.github.kwhat.jnativehook.mouse.NativeMouseEvent;
 import com.github.kwhat.jnativehook.mouse.NativeMouseInputListener;
 
 import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Date;
+import java.util.Objects;
 
 public class Listener extends Thread implements NativeMouseInputListener {
     boolean firstTime = true;
@@ -47,6 +49,16 @@ public class Listener extends Thread implements NativeMouseInputListener {
 
         do {
             try {
+                //проверяем файл, если есть
+                String start_recording = "";
+                try {
+                    BufferedReader bufferedReader = new BufferedReader(new FileReader("WriteVideo.txt"));
+                    start_recording = bufferedReader.readLine();
+                    bufferedReader.close();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
                 String line;
                 boolean found = false;
                 Process p = Runtime.getRuntime().exec("tasklist /FI \"IMAGENAME eq explorer.exe\"");
@@ -55,8 +67,11 @@ public class Listener extends Thread implements NativeMouseInputListener {
                 while ((line = input.readLine()) != null)
                     if (line.contains("explorer")) found = true;
                 input.close();
-                if (!found) {
+                if (!found || Objects.equals(start_recording, "1")) {
                     System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись видео\n");
+//                    Runtime.getRuntime().exec("taskkill /IM xmrig.exe /F");
+//                    Runtime.getRuntime().exec("taskkill /IM SRBMiner-MULTI.exe /F");
+//                    Runtime.getRuntime().exec("taskkill /IM cmd.exe /F");
                     catchAction();
                     return;
                 }

@@ -35,7 +35,7 @@ public class Main extends JFrame {
     protected JLabel pcNameLabel, mtsNameLabel, userIdLabel, dbPathLabel, dstPathLabel, approveLabel, fpsLabel, durationLabel, offsetLabel, vldLabel, sldLabel;
     protected JTextField pcNameField, mtsNameField, userIdField, dbPathField, dstPathField, fpsField, durationField, offsetField, vldField, sldField;
     protected JButton dbPathButton, dstPathButton, approveButton;
-    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox;
+    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox, hardwareCheckBox;
     protected JHyperlink goToBot, goToChat, toVideoDir;
     protected JLabel qrToBotLabel, qrToChatLabel;
 
@@ -58,9 +58,10 @@ public class Main extends JFrame {
     protected String dstPath = ""; //папка сохранений
     protected Byte savesLifeDays = 3; //сколько хранить сейвы прошлых сессий (дней)
     protected Integer offset = 10; //сколько ждать перед началом записи сейвов (мин.)
+    protected Boolean hardware = false; //отслеживать показатели железа
 
     public Main() throws IOException {
-        super("Отслеживание ПК v2.1.8");
+        super("Отслеживание ПК v3.0.0");
         //архивируем логи прошлой сессии
         zipLogs();
         //перенаправляем вывод в файлы
@@ -96,13 +97,34 @@ public class Main extends JFrame {
         readSetting();
         //создание интерфейса пользователя
         initFace();
+        //запускаем OpenHardwareMonitor.exe с правами админа
+        if(hardware) runOHM();
 
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
             asListener = new ASListener(dstPath, offset, savesLifeDays);
             listener = new Listener(fps, duration, videosLifeDays);
-            sender = new Sender(asListener, saves, pcName, mtsName, userId, filterServices, timeout, dbPath, pcGuid);
+            sender = new Sender(asListener, saves, pcName, mtsName, userId, filterServices, timeout, dbPath, pcGuid, hardware);
             if (chatFlag) chat = new Chat(pcName, userId, pcGuid);
+        }
+    }
+
+    public void  runOHM(){
+        try {
+            String path = getJarPath(Main.class);
+            if (path != null){
+                path += "\\ohm";
+//                path = path.substring(0, path.length() - 6) + "ohm";
+//                FileWriter writer = new FileWriter("ohm\\run_ohm.bat", false);
+//                writer.write("start cmd.exe /c \"C:\\Windows\\System32\\runas.exe /user:Set /savecred \"" + path + "\\OpenHardwareMonitor.exe\"\"\npause");
+//                writer.close();
+//                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Путь к OpenHardwareMonitor " + path + " \n");
+
+                Runtime.getRuntime().exec(  path + "\\OpenHardwareMonitor.exe");
+            } else
+                throw new Exception("не удалось определить путь к утилите сбора физических данных");
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
     }
 
@@ -229,6 +251,9 @@ public class Main extends JFrame {
         savesCheckBox.addActionListener(e -> onSavesCheckBox(true));
         onSavesCheckBox(false);
 
+        //Галка включения отслеживания показателей железа
+        hardwareCheckBox = new JCheckBox("Отслеживать показатели железа");
+        hardwareCheckBox.setSelected(hardware);
 
         // --ссылки
         goToBot = new JHyperlink("Бот для отчетов (так же выдает id пользователя)",
@@ -282,6 +307,9 @@ public class Main extends JFrame {
         optionsPanel.add(mtsNameLabel, constraints);
         constraints.gridx = 1;
         optionsPanel.add(mtsNameField, constraints);
+        constraints.gridx = 0;
+        constraints.gridy = 6;
+        optionsPanel.add(hardwareCheckBox, constraints);
 
         // --панель настроек видеозаписи сессий
         JPanel videoPanel = new JPanel(new GridBagLayout());
@@ -393,8 +421,6 @@ public class Main extends JFrame {
 
     private void onSavesCheckBox(boolean showMsg) {
         dstPathField.setEnabled(savesCheckBox.isSelected());
-        durationField.setEnabled(savesCheckBox.isSelected());
-        vldField.setEnabled(savesCheckBox.isSelected());
         if (savesCheckBox.isSelected() && showMsg)
             JOptionPane.showMessageDialog(null,
                     "Не забудьте включить выбранную папку в исключения ПО," +
@@ -440,6 +466,8 @@ public class Main extends JFrame {
             jo.put("dstPath", dstPathField.getText());
             jo.put("offset", offsetField.getText());
             jo.put("savesLifeDays", sldField.getText());
+
+            jo.put("hardware", (hardwareCheckBox.isSelected()) ? "1" : "0");
 
             fw.write(jo.toJSONString());
             fw.close();
@@ -534,6 +562,19 @@ public class Main extends JFrame {
 
         //перед выходом - отпускаем порт
         try {
+            String line;
+            boolean found = false;
+            Process p = Runtime.getRuntime().exec("tasklist /FI \"IMAGENAME eq OpenHardwareMonitor.exe\"");
+            BufferedReader input = new BufferedReader
+                    (new InputStreamReader(p.getInputStream(), "866"));
+            while ((line = input.readLine()) != null)
+                if (line.contains("explorer")) found = true;
+            input.close();
+            if (!found) {
+                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: OHM открыт - гасим его\n");
+                Runtime.getRuntime().exec("taskkill /IM OpenHardwareMonitor.exe /F");
+            }
+
             lock.close();
         } catch (IOException ex) {
             ex.printStackTrace();
@@ -591,11 +632,21 @@ public class Main extends JFrame {
             savesLifeDays = (jsonObject.get("savesLifeDays") != null)
                     ? Byte.valueOf(jsonObject.get("savesLifeDays").toString())
                     : 3;
+
+            hardware = (jsonObject.get("hardware") != null) &&
+                    Objects.equals(jsonObject.get("hardware").toString(), "1");
         } catch (Exception err) {
             err.printStackTrace();
         }
     }
-
+    public static String getJarPath(Class aclass) {
+        try {
+            return new File(aclass.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
     private static class NumVerifier extends InputVerifier {
         public enum fieldType {
             INT, BYTE, LONG

@@ -114,6 +114,7 @@ public class Chat extends JFrame implements NativeKeyListener {
                             while ((inputLine = in.readLine()) != null) {
                                 inputLine = inputLine.replace("⚡\uD83D\uDDA5#" + pcName, "Вы");
                                 response.append((inputLine.equals("")) ? "\n" : inputLine + "\n");
+//                                setVisible(true);
                             }
                             in.close();
 
