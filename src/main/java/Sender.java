@@ -1,10 +1,9 @@
+import org.apache.commons.io.FilenameUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
 
 import java.io.*;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +12,7 @@ import java.sql.SQLException;
 import java.util.*;
 
 public class Sender extends Thread {
+    private static final String hwReportFile = "AIDA64\\rep_log.csv";
     //настройки отслеживания
     protected String sessionUUID = UUID.randomUUID().toString(); //UUID сессии работы программы
     protected String pcName; //имя отслеживаемого ПК
@@ -31,9 +31,12 @@ public class Sender extends Thread {
     protected ASListener asListener;
     protected boolean saves;
     protected TreeSet<GameInfo> games = new TreeSet<>();
-    protected boolean hardware;
+    protected TreeSet<ProcessInfo> previousProcs = new TreeSet<>();
 
-    public Sender(ASListener asListener, Boolean saves, String pcName, String mtsName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid, Boolean hardware) {
+    protected boolean hardware;
+    protected boolean hwiShort;
+
+    public Sender(ASListener asListener, Boolean saves, String pcName, String mtsName, String userId, Boolean filterServices, Byte timeout, String dbPath, String pcGuid, Boolean hardware, Boolean hwiShort) {
         super();
         //заполнение настроек
         this.pcName = pcName;
@@ -46,6 +49,7 @@ public class Sender extends Thread {
         this.asListener = asListener;
         this.saves = saves;
         this.hardware = hardware;
+        this.hwiShort = hwiShort;
     }
 
     @Override
@@ -62,6 +66,7 @@ public class Sender extends Thread {
                     return;    //Завершение потока после прерывания
                 }
             } catch (Exception err) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 err.printStackTrace();
             }
         } while (true);
@@ -72,87 +77,40 @@ public class Sender extends Thread {
         try {
             String line;
             String[] info;
-            String cmd = "getprocs.bat";
-            Process p = Runtime.getRuntime().exec(cmd);
+            ProcessBuilder pbProcsMan = new ProcessBuilder("BBB_ProcsMan.exe");
+            Process p = pbProcsMan.start();
+
             BufferedReader input = new BufferedReader
                     (new InputStreamReader(p.getInputStream(), "866"));
-            int i = 0;
-            int start_line = 0;
-            int offset_begin = -1;
             while ((line = input.readLine()) != null) {
-                i++;
-
-                if (offset_begin < 0) {
-                    offset_begin = line.indexOf("ProcessName");
-                    start_line = i+2;
-                }
-                //отсекаем шапку
-                if (i < start_line || offset_begin < 0 || line.length() < offset_begin)
-                    continue;
-
-                String pid = line.substring(0, offset_begin - 1).trim();
-                line = line.substring(offset_begin);
-
-                info = line.split("[|%#^]", -1);
+                info = line.split(" ## ", -1);
 
                 if (Arrays.stream(info).count() > 3) {
-                    //отсекаем виндовские процессы и записи без exe
-                    if (
-                            (info[2].trim().startsWith("C:\\Windows\\") || info[1].trim().equals("0")) &&
-                                    !info[0].trim().equals("explorer") //нужен для понимания входа игрока
-                    ) continue;
+                    for (int i = 0; i < info.length; i++)
+                        info[i] = info[i].trim();
 
-                    info[3] = info[3].trim().replaceAll(" ", "_"); //читаемое описание, если есть
-                    info[0] = info[0].trim(); //техническое имя процесса
-                    if (info[3].equals("")) info[3] = info[0];
+                    info[4] = info[4].replaceAll(" ", "_"); //читаемое описание, если есть
+                    if (info[2].equals("")) info[2] = info[3]; //если версия файла пустая, берется версия продукта
+                    String name = FilenameUtils.getBaseName(info[1]);
+                    if (info[4].equals("")) info[4] = name; //если описание файла пустое, берется его имя
 
-                    processes.add(new ProcessInfo(info[0], info[3], info[2].trim(), info[4].trim(), pid));
+                    processes.add(
+                            new ProcessInfo(
+                                    name, //name
+                                    info[4], //type
+                                    info[1], //exe
+                                    info[2], //version
+                                    info[0]  //handle
+                            )
+                    );
                 }
             }
             input.close();
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
         return processes;
-    }
-
-    protected TreeSet<ProcessInfo> filterProcesses(TreeSet<ProcessInfo> procs) {
-        TreeSet<ProcessInfo> processes = new TreeSet<>();
-        try {
-            String line;
-            String cmd = "cmdow_run.bat";
-            Process p = Runtime.getRuntime().exec(cmd);
-            BufferedReader input = new BufferedReader
-                    (new InputStreamReader(p.getInputStream(), "866"));
-            int i = 0;
-            int offset_begin = 0;
-            int offset_end = 0;
-            while ((line = input.readLine()) != null) {
-                i++;
-
-                if (i == 2) {
-                    offset_begin = line.indexOf("Lev")+3;
-                    offset_end = line.indexOf("-Window") - 1;
-                }
-
-                //отсекаем шапку
-                if (i < 3) continue;
-
-                String pid = line.substring(offset_begin, offset_end).trim();
-
-                for (ProcessInfo proc : procs) {
-                    if (Objects.equals(proc.pid, pid)) {
-//                        proc.window = true;
-                        processes.add(proc);
-                    }
-                }
-            }
-            input.close();
-        } catch (Exception err) {
-            err.printStackTrace();
-        }
-        return processes;
-//        return procs;
     }
 
     protected TreeSet<GameInfo> listGamesFromLib() {
@@ -163,16 +121,11 @@ public class Sender extends Thread {
             games = DBW.readDB();
             DBW.closeDB();
         } catch (ClassNotFoundException | SQLException err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
         //добавляем игры из Steam
         games.addAll(SteamReader.getSteamGames((!Objects.equals(dbPath, "")) ? dbPath : dbPathDefault));
-
-        //добавляем игры-исключения или заменяем ими данные из библиотеки
-        TreeSet<GameInfo> excGames = readExcGames();
-        for (GameInfo excGame : excGames)
-            games.removeIf(game -> Objects.equals(game.gName, excGame.gName));
-        games.addAll(excGames);
 
         //вычисляем актуальную версию ехе
         for (GameInfo game : games) {
@@ -180,6 +133,7 @@ public class Sender extends Thread {
             try {
                 version = EXEFileInfo.getVersionInfo(game.gPath);
             } catch (Exception err) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 err.printStackTrace();
             }
             if (!version.equals(""))
@@ -189,47 +143,45 @@ public class Sender extends Thread {
         return games;
     }
 
-    //чтение данных для игр-исключений
-    public TreeSet<GameInfo> readExcGames() {
-        TreeSet<GameInfo> games = new TreeSet<>();
+    protected TreeSet<HardwareInfo> listHardwareInfoShort() {
+        TreeSet<HardwareInfo> hardware = new TreeSet<>();
+        String line;
 
-        JSONParser parser = new JSONParser();
-        FileReader fr;
+        if (!this.hardware) return hardware;
 
+        String[] info;
         try {
-            fr = new FileReader("excGames.json");
-            Object obj = parser.parse(fr);
-            fr.close();
+            ProcessBuilder pbProcsMan = new ProcessBuilder("GetHWInfo_Run.bat");
+            Process p = pbProcsMan.start();
 
-            JSONObject jsonObject = (JSONObject) obj;
-            JSONArray excGames = (jsonObject.get("excGames") != null) ? (JSONArray) jsonObject.get("excGames") : new JSONArray();
-
-            for (Object excGame : excGames) {
-                JSONObject JSONexcGame = (JSONObject) excGame;
-                GameInfo gi = new GameInfo(
-                        (JSONexcGame.get("name") != null) ? JSONexcGame.get("name").toString() : "",
-                        (JSONexcGame.get("exePath") != null) ? JSONexcGame.get("exePath").toString() : "",
-                        "",
-                        ""
-                );
-                games.add(gi);
+            BufferedReader input = new BufferedReader
+                    (new InputStreamReader(p.getInputStream(), "866"));
+            while ((line = input.readLine()) != null) {
+                info = line.split(" ", -1);
+                if (
+                        Objects.equals(info[0], "GPU_temperature") ||
+                                Objects.equals(info[0], "GPU_load")
+                )
+                    hardware.add(new HardwareInfo(info[0], info[1]));
             }
-        } catch (Exception err) {
-            err.printStackTrace();
+            input.close();
+        } catch (IOException ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            ex.printStackTrace();
         }
-        return games;
+
+        return hardware;
     }
 
-    protected TreeSet<HardwareInfo> listHardwareInfo() {
+    protected TreeSet<HardwareInfo> listHardwareInfoFull() {
         TreeSet<HardwareInfo> hardware = new TreeSet<>();
+        String log_csv_name;
 
         if (!this.hardware) return hardware;
 
         try {
-            String log_csv_name;
-
             //получаем имя самого свежего csv-файла в папке OpenHardwareMonitor
-            Path dir = Paths.get("ohm");
+            Path dir = Paths.get("lhm");
             if (Files.isDirectory(dir)) {
                 Optional<Path> opPath = Files.list(dir)
                         .filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".csv"))
@@ -242,7 +194,7 @@ public class Sender extends Thread {
                 return new TreeSet<>();
 
             //берем первую (заголовки) и последнюю (текущие значения) строку
-            String current, param_names = null,  param_vals = null;
+            String current, param_names = null, param_vals = null;
             BufferedReader bufferedReader = new BufferedReader(new FileReader(log_csv_name));
             int i = 0;
             while ((current = bufferedReader.readLine()) != null) {
@@ -264,32 +216,34 @@ public class Sender extends Thread {
                 if ((param_param_names[j].contains("temperature") || (param_param_names[j].contains("load") && !param_param_names[j].contains("hdd")))
                         && param_param_names[j].endsWith("/0")
                         && (!Objects.equals(param_vals_arr[j], ""))
-                ){
+                ) {
                     hardware.add(new HardwareInfo(param_param_names[j], param_vals_arr[j]));
                 }
             }
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
         return hardware;
     }
 
-    protected String getJSONString(TreeSet<ProcessInfo> procs, TreeSet<GameInfo> games, TreeSet<HardwareInfo> hardware) {
+
+    protected String getJSONString(boolean procsChanged, TreeSet<ProcessInfo> procs, TreeSet<GameInfo> games, TreeSet<HardwareInfo> hardware) {
         JSONArray jProcs = new JSONArray();
         JSONArray jGames = new JSONArray();
         JSONArray jHardware = new JSONArray();
 
-        procs = filterProcesses(procs);
-
-        //список процессов к отправке
-        for (ProcessInfo next : procs) {
-            JSONObject jo = new JSONObject();
-            jo.put("name", next.name);
-            jo.put("type", next.type);
-            jo.put("exe", next.exe);
-            jo.put("version", next.version);
-            jProcs.add(jo);
-        }
+        //список процессов к отправке, если есть изменения
+        if (procsChanged)
+            for (ProcessInfo next : procs) {
+                JSONObject jo = new JSONObject();
+                jo.put("handle", next.handle);
+                jo.put("name", next.name);
+                jo.put("type", next.type);
+                jo.put("exe", next.exe);
+                jo.put("version", next.version);
+                jProcs.add(jo);
+            }
         //список игр к отправке
         for (GameInfo next : games) {
             JSONObject jo = new JSONObject();
@@ -299,7 +253,7 @@ public class Sender extends Thread {
             jo.put("gVers", next.gVers);
             jGames.add(jo);
         }
-        //список параметров оборудования к отправке
+        //список параметров оборудования к отправке, если есть изменения
         for (HardwareInfo next : hardware) {
             JSONObject jo = new JSONObject();
             jo.put("name", next.name);
@@ -319,10 +273,11 @@ public class Sender extends Thread {
         message.put("sessionUUID", sessionUUID);
         message.put("time", System.currentTimeMillis());
         //список процессов
+        message.put("procsChanged", procsChanged);
         message.put("procs", jProcs);
         //список игр
         message.put("games", jGames);
-        //список игр
+        //список параметров оборудования
         message.put("hardware", jHardware);
 
         //пакет для сообщения
@@ -337,60 +292,55 @@ public class Sender extends Thread {
         return result;
     }
 
-    protected void sendPOST() throws IOException {
-        URL url = new URL("https://bbb.daobots.ru/YaEyebot.php");
-        HttpURLConnection con = (HttpURLConnection) url.openConnection();
+    protected void sendPOST() throws Exception {
+        //получаем данные о библиотеке лишь один раз
+        if (firstTime) {
+            games = listGamesFromLib();
+            if (saves)
+                asListener.setGames(games);
+        }
 
-        con.setRequestMethod("POST");
-        con.setRequestProperty("Content-Type", "application/json; utf-8");
-        con.setRequestProperty("Accept", "application/json");
-        con.setConnectTimeout(2000);
-        con.setReadTimeout(2000);
-        con.setDoOutput(true);
+        TreeSet<ProcessInfo> procs = listRunningProcesses();
+        boolean procsChanged = !(procs.containsAll(previousProcs) && previousProcs.containsAll(procs));
+        if (procsChanged)
+            previousProcs = procs;
 
+        TreeSet<HardwareInfo> hw = (hwiShort) ? listHardwareInfoShort() : listHardwareInfoFull();
+
+        //отсылаем заполненную библиотеку только первый раз
+        byte[] input = getJSONString(
+                procsChanged,
+                procs,
+                (firstTime) ? games : new TreeSet<>(),
+                hw
+        ).getBytes(StandardCharsets.UTF_8);
+
+        ConToBot conToBot = new ConToBot();
+        HttpURLConnection con = conToBot.getCon();
         try (OutputStream os = con.getOutputStream()) {
-            //получаем данные о библиотеке лишь один раз
-            if (firstTime) {
-                games = listGamesFromLib();
-                if (saves) asListener.setGames(games);
-            }
-            TreeSet<ProcessInfo> procs = listRunningProcesses();
-
-            //отсылаем заполненную библиотеку только первый раз
-            byte[] input = getJSONString(procs, (firstTime) ? games : new TreeSet<>(), listHardwareInfo()).getBytes(StandardCharsets.UTF_8);
             os.write(input, 0, input.length);
-
-            //Дополнительно: включаем запись, как только пропадает процесс explorer - один раз
-            //только если, процесс вообще запущен (т.е. запись видео включена пользователем)
-            boolean explorer_runing = false;
-            for (ProcessInfo proc : procs) {
-                if (Objects.equals(proc.name, "explorer")) {
-                    explorer_runing = true;
-                    break;
-                }
-            }
-            if (!explorer_runing && !explorer_stopped) {
-                explorer_stopped = true;
-                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись сейвов\n");
-                if (saves) asListener.catchAction();
-            }
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
+        //если что-то пошло не так - повторим в следующий раз отправку библиотеки,
+        //но только если она еще не была отправлена в эту сессию
+        firstTime = !conToBot.closeCon() && firstTime;
 
-        try (BufferedReader br = new BufferedReader(
-                new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
-            StringBuilder response = new StringBuilder();
-            String responseLine;
-            while ((responseLine = br.readLine()) != null) {
-                response.append(responseLine.trim());
+        //Дополнительно: включаем запись, как только пропадает процесс explorer - один раз
+        //только если, процесс вообще запущен (т.е. запись видео включена пользователем)
+        boolean explorer_runing = false;
+        for (ProcessInfo proc : procs) {
+            if (Objects.equals(proc.name, "explorer")) {
+                explorer_runing = true;
+                break;
             }
-            System.out.println(response);
-        } catch (Exception err) {
-            err.printStackTrace();
         }
-        con.disconnect();
-
-        firstTime = false;
+        if (!explorer_runing && !explorer_stopped) {
+            explorer_stopped = true;
+            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись сейвов\n");
+            if (saves)
+                asListener.catchAction();
+        }
     }
 }

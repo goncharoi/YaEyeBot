@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Date;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.ZipEntry;
@@ -15,10 +16,8 @@ import java.util.zip.ZipOutputStream;
 import static java.nio.file.FileVisitResult.CONTINUE;
 
 public class ZippingVisitor extends SimpleFileVisitor<Path> implements java.lang.AutoCloseable {
-    private static final Logger LOG = Logger.getLogger(ZippingVisitor.class.getName());
     public static final int BUFFER_SIZE = 4096;
     private final Path _source;
-    private final Path _target;
     private final FileOutputStream _fos;
     private final ZipOutputStream _zos;
 
@@ -26,14 +25,14 @@ public class ZippingVisitor extends SimpleFileVisitor<Path> implements java.lang
         try (ZippingVisitor zippingVisitor = new ZippingVisitor(source, target)) {
             Files.walkFileTree(source, zippingVisitor);
         } catch (IOException ioe) {
-            LOG.log(Level.SEVERE, null, ioe);
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            ioe.printStackTrace();
         }
     }
 
     public ZippingVisitor(Path source, Path target) throws FileNotFoundException {
         this._source = source;
-        this._target = target;
-        _fos = new FileOutputStream(_target.toFile());
+        _fos = new FileOutputStream(target.toFile());
         _zos = new ZipOutputStream(_fos);
     }
 
@@ -43,7 +42,6 @@ public class ZippingVisitor extends SimpleFileVisitor<Path> implements java.lang
             throw new IOException("File " + file + " not found.");
         }
         Path zipEntryPath = _source.relativize(file);
-        LOG.log(Level.FINE, zipEntryPath.toString());
         byte[] buffer = new byte[BUFFER_SIZE];
         try (FileInputStream fis = new FileInputStream(file.toFile())) {
             _zos.putNextEntry(new ZipEntry(zipEntryPath.toString()));
@@ -53,7 +51,8 @@ public class ZippingVisitor extends SimpleFileVisitor<Path> implements java.lang
             }
             _zos.closeEntry();
         } catch (IOException ioe) {
-            LOG.log(Level.SEVERE, null, ioe);
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            ioe.printStackTrace();
         }
         return CONTINUE;
     }

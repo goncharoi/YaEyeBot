@@ -17,6 +17,7 @@ class SteamReader {
         try {
             apps = GetSteamApps(GetSteamLibs());
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
             return games;
         }
@@ -27,6 +28,7 @@ class SteamReader {
             libMappings = DBW.readDBSteam();
             DBW.closeDB();
         } catch (ClassNotFoundException | SQLException err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
 
@@ -65,6 +67,7 @@ class SteamReader {
                         apps.add(appInfo);
                     }
                 } catch (Exception ex) {
+                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                     ex.printStackTrace();
                 }
             }

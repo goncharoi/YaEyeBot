@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Date;
 
 public class JHyperlink extends JLabel {
     private String url;
@@ -47,6 +48,7 @@ public class JHyperlink extends JLabel {
                     try {
                         Desktop.getDesktop().open(new File(JHyperlink.this.url));
                     } catch (IOException ioe) {
+                        System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                         ioe.printStackTrace();
                         JOptionPane.showMessageDialog(JHyperlink.this,
                                 "Could not open the hyperlink. Error: " + e1.getMessage(),

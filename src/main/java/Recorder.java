@@ -13,9 +13,9 @@ import java.util.Objects;
 import java.util.function.Predicate;
 
 public class Recorder extends Thread {
-    String inPath = "video\\latest";
-    String outPath = "video\\records";
-    String outFNameStorage = "video\\previousRecordTime.txt";
+    private static final String inPath = "video\\latest";
+    private static final String outPath = "video\\records";
+    private static final String outFNameStorage = "video\\previousRecordTime.txt";
     byte fps;
     int duration;
     byte videosLifeDays;
@@ -41,12 +41,14 @@ public class Recorder extends Thread {
             fr.close();
             buffReader.close();
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
 
         try {
             Runtime.getRuntime().exec("Forfiles -p " + outPath + " -s -m *.mp4 -d -" + videosLifeDays + " -c \"cmd /c del /q @path\"");
         } catch (IOException ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
 
@@ -68,6 +70,7 @@ public class Recorder extends Thread {
                 fw.write("");
                 fw.close();
             } catch (IOException ex) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 ex.printStackTrace();
             }
         }
@@ -83,6 +86,7 @@ public class Recorder extends Thread {
                         .filter(Predicate.not(File::isDirectory))
                         .forEach(File::delete);
             } catch (Exception ex) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 ex.printStackTrace();
             }
             //пишем дату и время начала записи для пользователя
@@ -93,6 +97,7 @@ public class Recorder extends Thread {
                 fw.write(formater.format(new Date()));
                 fw.close();
             } catch (Exception ex) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 ex.printStackTrace();
             }
         }
@@ -137,6 +142,7 @@ public class Recorder extends Thread {
                 screenshot_id++;
             } while (i <= (long) duration * fps);
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
     }

@@ -8,19 +8,19 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Objects;
 
 import static java.lang.Thread.sleep;
 
 public class Chat extends JFrame implements NativeKeyListener {
+    private final static int defaultPause = 60000; //по умолчанию запрашиваем историю чата раз в минуту
     private boolean ctrlPressed = false;
     private boolean shiftPressed = false;
     private boolean f1Pressed = false;
@@ -29,6 +29,11 @@ public class Chat extends JFrame implements NativeKeyListener {
     protected String userId; //id пользователя телеграмма
     protected String pcGuid;
 
+    protected boolean chatFlag;
+    protected int pause; //пауза между запросами истории чата
+    protected boolean gameMode;
+    protected boolean autoUpdateMTS;
+
     protected JTextArea historyBox;
     protected JScrollPane historyScrollPane;
     protected JTextArea messageBox;
@@ -36,12 +41,16 @@ public class Chat extends JFrame implements NativeKeyListener {
 
     protected Thread listener;
 
-    public Chat(String pcName, String userId, String pcGuid) {
+    public Chat(String pcName, String userId, String pcGuid, boolean chatFlag, boolean autoUpdateMTS) {
         super("Чат с владельцем ПК");
         //заполнение настроек
         this.pcName = pcName;
         this.userId = userId;
         this.pcGuid = pcGuid;
+        this.chatFlag = chatFlag;
+        this.autoUpdateMTS = autoUpdateMTS;
+        this.pause = defaultPause;
+        this.gameMode = false;
 
         setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
         setSize(430, 500);
@@ -86,17 +95,34 @@ public class Chat extends JFrame implements NativeKeyListener {
         setContentPane(mainPanel);
 
         setVisible(false);
-        if (!GlobalScreen.isNativeHookRegistered()) {
+        //отслеживание нажатий запускаем, если использование чата разрешено на ПК
+        if (!GlobalScreen.isNativeHookRegistered() && this.chatFlag) {
             try {
                 GlobalScreen.registerNativeHook();
             } catch (NativeHookException e) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 e.printStackTrace();
             }
         }
         GlobalScreen.addNativeKeyListener(this);
 
         listener = new Thread(() -> {
+            int prevBotNeedUpdateCount = 0;
+            int prevMTSNeedUpdateCount = 0;
+            int prevAlarmsCount = 0;
+            //на всякий случай подождем обнуления чата на сервере
+            try {
+                sleep(10000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            //погнали обновлять историю чата
             do {
+                int lastBotNeedUpdateCount = 0;
+                int lastMTSNeedUpdateCount = 0;
+                int lastAlarmsCount = 0;
+                String lastAlarm = "";
+
                 try {
                     try {
                         URL url = new URL("https://bbb.daobots.ru/dialog.php?pcGuid=" + pcGuid);
@@ -112,28 +138,138 @@ public class Chat extends JFrame implements NativeKeyListener {
                             StringBuilder response = new StringBuilder();
 
                             while ((inputLine = in.readLine()) != null) {
-                                inputLine = inputLine.replace("⚡\uD83D\uDDA5#" + pcName, "Вы");
-                                response.append((inputLine.equals("")) ? "\n" : inputLine + "\n");
-//                                setVisible(true);
+                                switch (inputLine) {
+                                    case "BotNeedUpdate" ->
+                                        //пришел сигнал об обновлении бота - считаем сколько таких сигналов в истории чата
+                                            lastBotNeedUpdateCount++;
+                                    case "MTSNeedUpdate" ->
+                                        //пришел сигнал об обновлении МТС - считаем сколько таких сигналов в истории чата
+                                            lastMTSNeedUpdateCount++;
+                                    default -> {
+                                        if (inputLine.startsWith("#alarm")) {
+                                            //пришло оповещение от админа - считаем сколько таких оповещений в истории чата
+                                            //и запоминаем последнее
+                                            lastAlarmsCount++;
+                                            lastAlarm = inputLine;
+                                        } else {
+                                            inputLine = inputLine.replace("⚡\uD83D\uDDA5#" + pcName, "Вы");
+                                            response.append((inputLine.equals("")) ? "\n" : inputLine + "\n");
+                                        }
+                                    }
+                                }
                             }
                             in.close();
 
+                            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Было/стало: оповещений (" + prevAlarmsCount + "/" + lastAlarmsCount +
+                                    "), сигналов об обновлении бота (" + prevBotNeedUpdateCount + "/" + lastBotNeedUpdateCount +
+                                    "), сигналов об обновлении МТС (" + prevMTSNeedUpdateCount + "/" + lastMTSNeedUpdateCount +")\n");
+                            //если сигналов об обновлении бота больше, чем при прошлой проверке истории, значит пришел новый -
+                            //ставим метку, о необходимости обновления бота
+                            if (lastBotNeedUpdateCount > prevBotNeedUpdateCount) {
+                                prevBotNeedUpdateCount = lastBotNeedUpdateCount;
+                                try {
+                                    FileWriter fw = new FileWriter(Main.outNUStorage);
+                                    fw.write("1");
+                                    fw.close();
+                                } catch (Exception ex) {
+                                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+                                    ex.printStackTrace();
+                                }
+                            }
+                            //если сигналов об обновлении МТС больше, чем при прошлой проверке истории, значит пришел новый -
+                            //проверяем, включено ли обновление МТС, и если да -
+                            //запускаем обновление МТС (если ПК не в игре, иначе - откладываем до перезагрузки, выставляем флаг)
+                            if (lastMTSNeedUpdateCount > prevMTSNeedUpdateCount && autoUpdateMTS) {
+                                prevMTSNeedUpdateCount = lastMTSNeedUpdateCount;
+                                try {
+                                    if (gameMode) {
+                                        FileWriter fw = new FileWriter(Main.outMTSNUStorage);
+                                        fw.write("1");
+                                        fw.close();
+                                    } else {
+                                        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Запускаем обновление МТС\n");
+                                        java.util.List<String> command = new ArrayList<>();
+                                        command.add("powershell");
+                                        command.add("-ExecutionPolicy");
+                                        command.add("ByPass");
+                                        command.add("-file");
+                                        command.add("\"MTSUpdate.ps1\"");
+                                        ProcessBuilder pb = new ProcessBuilder(command);
+                                        pb.redirectErrorStream(true);
+                                        Process process = pb.start();
+                                        //ждем завершения процесса
+                                        process.waitFor();
+                                    }
+                                } catch (Exception ex) {
+                                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+                                    ex.printStackTrace();
+                                }
+                            }
+                            //если оповещений от админа больше, чем при прошлой проверке истории, значит пришло новое -
+                            //показываем его
+                            if (lastAlarmsCount > prevAlarmsCount) {
+                                prevAlarmsCount = lastAlarmsCount;
+                                showAlarmMessage(lastAlarm);
+                            }
+
                             historyBox.setText(response.toString());
                             JScrollBar vsb = historyScrollPane.getVerticalScrollBar();
-                            vsb.setValue( vsb.getMaximum() );
+                            vsb.setValue(vsb.getMaximum());
 
                             con.disconnect();
                         }
                     } catch (IOException err) {
+                        System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                         err.printStackTrace();
                     }
-                    sleep(3000);        //Приостанавливает поток
+                    sleep(pause);        //Приостанавливает поток
                 } catch (InterruptedException e) {
                     return;    //Завершение потока после прерывания
                 }
             } while (true);
         });
         listener.start();
+    }
+
+    public void gameModeOn(){
+        gameMode = true;
+        //если включена опция чата с игроком, ускоряем получение истории чата - обновляем её раз в 5 сек.,
+        //иначе - слушаем только системные сообщения, которые получаем раз в минуту
+        if(chatFlag)
+            pause = 5000;
+    }
+
+    private void showAlarmMessage(String inputLine) {
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Показываем срочное оповещение от админа\n");
+//формат оповещения должен быть строго: #alarm <guid ПК>:<текст сообщения>
+        String[] parts = inputLine.replace("#alarm", "").trim().split(":", 2);
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Сообщение разбито на " + Arrays.stream(parts).count() + "частей, где гуид = " + parts[0] + "\n");
+        if (Arrays.stream(parts).count() > 1 && Objects.equals(parts[0].trim(), pcGuid)) {
+            final JDialog dialog = new JDialog(this, "ВНИМАНИЕ!", false);
+
+            JTextArea textBox = new JTextArea(1, 35);
+            textBox.setEditable(false);
+            textBox.setLineWrap(true);
+            textBox.setWrapStyleWord(true);
+            JScrollPane textScrollPane = new JScrollPane(textBox);
+            textBox.setFont(new Font("Dialog", Font.PLAIN, 20));
+            textBox.setText("Это окно закроется само через 10 сек.\n\n" + parts[1].trim());
+            JScrollBar vsb = textScrollPane.getVerticalScrollBar();
+            vsb.setValue(vsb.getMinimum());
+            dialog.add(textScrollPane);
+
+            dialog.setSize(500, 200);
+            dialog.setVisible(true);
+            dialog.setAlwaysOnTop(true);
+            Timer timer = new Timer(10000, e -> {
+                dialog.setVisible(false);
+                dialog.dispose();
+            });
+            timer.setRepeats(false);
+            timer.start();
+
+            dialog.setVisible(true); // if modal, application will pause here
+        }
     }
 
     public void finish() {
@@ -167,42 +303,26 @@ public class Chat extends JFrame implements NativeKeyListener {
         try {
             sendPOST();
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
         messageBox.setText("");
     }
 
-    protected void sendPOST() throws IOException {
-        URL url = new URL("https://bbb.daobots.ru/YaEyebot.php");
-        HttpURLConnection con = (HttpURLConnection) url.openConnection();
-
-        con.setRequestMethod("POST");
-        con.setRequestProperty("Content-Type", "application/json; utf-8");
-        con.setRequestProperty("Accept", "application/json");
-        con.setConnectTimeout(2000);
-        con.setReadTimeout(2000);
-        con.setDoOutput(true);
+    protected void sendPOST() throws Exception {
+        ConToBot conToBot = new ConToBot();
+        HttpURLConnection con = conToBot.getCon();
 
         try (OutputStream os = con.getOutputStream()) {
             //отсылаем заполненную библиотеку только первый раз
             byte[] input = getJSONString().getBytes(StandardCharsets.UTF_8);
             os.write(input, 0, input.length);
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
 
-        try (BufferedReader br = new BufferedReader(
-                new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
-            StringBuilder response = new StringBuilder();
-            String responseLine;
-            while ((responseLine = br.readLine()) != null) {
-                response.append(responseLine.trim());
-            }
-            System.out.println(response);
-        } catch (Exception err) {
-            err.printStackTrace();
-        }
-        con.disconnect();
+        conToBot.closeCon();
     }
 
     protected String getJSONString() {

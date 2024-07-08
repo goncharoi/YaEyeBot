@@ -46,6 +46,7 @@ public class AutoSaver extends Thread {
                 buffReader.close();
             }
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
 
@@ -54,6 +55,7 @@ public class AutoSaver extends Thread {
             System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Удаляем просроченные сейвы\n");
             Runtime.getRuntime().exec("Forfiles -p " + dstPath + " -s -m *.zip -d -" + savesLifeDays + " -c \"cmd /c del /q @path\"");
         } catch (IOException ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
 
@@ -74,6 +76,7 @@ public class AutoSaver extends Thread {
                     //удаляем папку
                     FileUtils.deleteDirectory(lastSessionSavesDir);
                 } catch (IOException ex) {
+                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                     ex.printStackTrace();
                 }
         }
@@ -91,6 +94,7 @@ public class AutoSaver extends Thread {
 
             for (DirInfo di : dirs) di.dstNameFill(formater.format(new Date()));
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
 
@@ -119,6 +123,7 @@ public class AutoSaver extends Thread {
             } catch (InterruptedException ex) {
                 return; //Завершение потока после прерывания
             } catch (Exception ex) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 ex.printStackTrace();
             }
         } while (true);
@@ -181,6 +186,7 @@ public class AutoSaver extends Thread {
                     FileUtils.copyDirectory(new File(srcPath), new File(dstPath));
                 } catch (IOException ex) {
                     copy_failed = true;
+                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                     ex.printStackTrace();
                     sleep(500);
                 }
@@ -214,6 +220,7 @@ public class AutoSaver extends Thread {
                     }
                 });
             } catch (IOException ex) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 ex.printStackTrace();
             }
             result[2] = FileUtils.sizeOfDirectory(dir);

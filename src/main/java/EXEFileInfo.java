@@ -11,10 +11,10 @@ public class EXEFileInfo {
         dwDummy.setValue(0);
 
         int versionlength = com.sun.jna.platform.win32.Version.INSTANCE.GetFileVersionInfoSize(path, dwDummy);
-        byte[] bufferarray = new byte[versionlength];
-
-        if (bufferarray.length == 0)
+        if (versionlength <= 0)
             return "";
+
+        byte[] bufferarray = new byte[versionlength];
 
         Pointer lpData = new Memory(bufferarray.length);
         PointerByReference lplpBuffer = new PointerByReference();

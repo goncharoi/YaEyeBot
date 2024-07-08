@@ -1,6 +1,3 @@
-import com.github.kwhat.jnativehook.mouse.NativeMouseEvent;
-import com.github.kwhat.jnativehook.mouse.NativeMouseInputListener;
-
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
@@ -8,30 +5,34 @@ import java.io.InputStreamReader;
 import java.util.Date;
 import java.util.Objects;
 
-public class Listener extends Thread implements NativeMouseInputListener {
+public class Listener extends Thread{
     boolean firstTime = true;
     private Recorder recorder;
     protected Byte fps; //частота кадров/сек. видеозаписи сессий
     protected Integer duration; //максимальная длительность одной видеозаписи (в минутах)
     protected Byte videosLifeDays; //длительность хранения видеозаписей (в днях)
 
-    public Listener(Byte fps, Integer duration, Byte videosLifeDays) {
+    private final Chat chat;
+    private  final  boolean videoFlag;
+
+    public Listener(boolean videoFlag, Byte fps, Integer duration, Byte videosLifeDays, String pcName, String userId, String pcGuid, boolean chatFlag, boolean autoUpdateMTS) {
         super();
 
+        this.videoFlag = videoFlag;
         this.fps = fps;
         this.duration = duration;
         this.videosLifeDays = videosLifeDays;
-    }
 
-    public void nativeMouseMoved(NativeMouseEvent e) {
-        catchAction();
+        this.chat = new Chat(pcName, userId, pcGuid, chatFlag, autoUpdateMTS);
     }
 
     public void catchAction() {
-        boolean recording = (recorder != null && recorder.isAlive());
+        //ускоряем проверку истории чата
+        chat.gameModeOn();
 
-        //начинаем писать, если еще не начали
-        if (recording) return;
+        //начинаем писать видео, если еще не начали
+        boolean recording = (recorder != null && recorder.isAlive());
+        if (recording || !videoFlag) return;
 
         System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Начата запись видео\n");
         recorder = new Recorder(firstTime, fps, duration, videosLifeDays);
@@ -40,7 +41,10 @@ public class Listener extends Thread implements NativeMouseInputListener {
     }
 
     public void finish() {
-        if (recorder != null && recorder.isAlive()) recorder.interrupt();
+        if (recorder != null && recorder.isAlive())
+            recorder.interrupt();
+        if (chat != null)
+            chat.finish();
     }
 
     @Override
@@ -56,6 +60,7 @@ public class Listener extends Thread implements NativeMouseInputListener {
                     start_recording = bufferedReader.readLine();
                     bufferedReader.close();
                 } catch (Exception e) {
+                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                     e.printStackTrace();
                 }
 
@@ -68,10 +73,7 @@ public class Listener extends Thread implements NativeMouseInputListener {
                     if (line.contains("explorer")) found = true;
                 input.close();
                 if (!found || Objects.equals(start_recording, "1")) {
-                    System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Проводник закрыт - запускаем запись видео\n");
-//                    Runtime.getRuntime().exec("taskkill /IM xmrig.exe /F");
-//                    Runtime.getRuntime().exec("taskkill /IM SRBMiner-MULTI.exe /F");
-//                    Runtime.getRuntime().exec("taskkill /IM cmd.exe /F");
+                    System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Запускаем запись видео\n");
                     catchAction();
                     return;
                 }
@@ -79,6 +81,7 @@ public class Listener extends Thread implements NativeMouseInputListener {
             } catch (InterruptedException e) {
                 return;    //Завершение потока после прерывания
             } catch (IOException e) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 e.printStackTrace();
             }
         } while (true);

@@ -13,14 +13,21 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
+import java.util.List;
 
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class Main extends JFrame {
+    //guid for Inno Setup: A2C1BDFF-AC19-402E-90EC-B56B00036870
+    public static final String version = "3.3.2";
+    public static final String outNUStorage = "BotNeedUpdate.txt";
+    public static final String outMTSNUStorage = "MTSNeedUpdate.txt";
+    public static final String updaterDir = "../YaEyeBotUpdater/";
+
     public static ServerSocket lock;
 
     public static Main app;
@@ -30,12 +37,11 @@ public class Main extends JFrame {
     private Sender sender;
     private Listener listener;
     private ASListener asListener;
-    private Chat chat;
 
     protected JLabel pcNameLabel, mtsNameLabel, userIdLabel, dbPathLabel, dstPathLabel, approveLabel, fpsLabel, durationLabel, offsetLabel, vldLabel, sldLabel;
     protected JTextField pcNameField, mtsNameField, userIdField, dbPathField, dstPathField, fpsField, durationField, offsetField, vldField, sldField;
     protected JButton dbPathButton, dstPathButton, approveButton;
-    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox, hardwareCheckBox;
+    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox, hardwareCheckBox, hwiShortCheckBox, autoUpdateCheckBox, autoUpdateMTSCheckBox;
     protected JHyperlink goToBot, goToChat, toVideoDir;
     protected JLabel qrToBotLabel, qrToChatLabel;
 
@@ -59,15 +65,25 @@ public class Main extends JFrame {
     protected Byte savesLifeDays = 3; //сколько хранить сейвы прошлых сессий (дней)
     protected Integer offset = 10; //сколько ждать перед началом записи сейвов (мин.)
     protected Boolean hardware = false; //отслеживать показатели железа
+    protected Boolean hwiShort = true; //только видеокарта (1), или все (0)
+    protected Boolean autoUpdate = false; //автообновление программы-датчика
+    protected Boolean autoUpdateMTS = false; //автообновление МТС Remote Play
 
     public Main() throws IOException {
-        super("Отслеживание ПК v3.0.0");
-        //архивируем логи прошлой сессии
+        super("Отслеживание ПК v" + version);
+        //архивируем логи прошлой сессии (в самом начале, чтоб не перетереть текущими)
         zipLogs();
         //перенаправляем вывод в файлы
         System.setOut(new PrintStream(new FileOutputStream("video\\logs\\latest\\out.log")));
         System.setErr(new PrintStream(new FileOutputStream("video\\logs\\latest\\err.log")));
+        //чтение настроек
+        readSetting();
+        //проверяем необходимость обновления МТС Remote Play
+        checkMTSNeedUpdate();
+        //проверяем необходимость установки лаунчера-обновлятора - происходит только при первом зауске
+        checkNeedUpdateInstall();
 
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: настраиваем отображение в трее\n");
         iconTr = new TrayIcon(ImageIO.read(new File("icon.png")), "Отслеживание ПК");
         iconTr.addActionListener(ev -> {
             setVisible(true);
@@ -78,13 +94,11 @@ public class Main extends JFrame {
         MouseMotionListener mouM = new MouseMotionListener() {
             public void mouseDragged(MouseEvent ev) {
             }
-
             //при наведении
             public void mouseMoved(MouseEvent ev) {
                 iconTr.setToolTip("Двойной щелчок - развернуть");
             }
         };
-
         iconTr.addMouseMotionListener(mouM);
         addWindowStateListener(ev -> {
             if (ev.getNewState() == JFrame.ICONIFIED) {
@@ -93,38 +107,149 @@ public class Main extends JFrame {
             }
         });
 
-        //чтение настроек
-        readSetting();
-        //создание интерфейса пользователя
+        //создаем интерфейс пользователя
         initFace();
-        //запускаем OpenHardwareMonitor.exe с правами админа
-        if(hardware) runOHM();
-
+        //запускаем LibreHardwareMonitor.exe
+        if(hardware && !hwiShort)
+            runLHM();
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
             asListener = new ASListener(dstPath, offset, savesLifeDays);
-            listener = new Listener(fps, duration, videosLifeDays);
-            sender = new Sender(asListener, saves, pcName, mtsName, userId, filterServices, timeout, dbPath, pcGuid, hardware);
-            if (chatFlag) chat = new Chat(pcName, userId, pcGuid);
+            listener = new Listener(video, fps, duration, videosLifeDays, pcName, userId, pcGuid, chatFlag, autoUpdateMTS);
+            sender = new Sender(asListener, saves, pcName, mtsName, userId, filterServices, timeout, dbPath, pcGuid, hardware, hwiShort);
         }
     }
 
-    public void  runOHM(){
+    public void  runLHM(){
         try {
+            //удаляем старые логи
+            Runtime.getRuntime().exec("Forfiles -p lhm -s -m *.csv -d -" + 3 + " -c \"cmd /c del /q @path\"");
+
             String path = getJarPath(Main.class);
             if (path != null){
-                path += "\\ohm";
-//                path = path.substring(0, path.length() - 6) + "ohm";
-//                FileWriter writer = new FileWriter("ohm\\run_ohm.bat", false);
-//                writer.write("start cmd.exe /c \"C:\\Windows\\System32\\runas.exe /user:Set /savecred \"" + path + "\\OpenHardwareMonitor.exe\"\"\npause");
-//                writer.close();
-//                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Путь к OpenHardwareMonitor " + path + " \n");
-
-                Runtime.getRuntime().exec(  path + "\\OpenHardwareMonitor.exe");
+                path += "\\lhm";
+                ProcessBuilder pb = new ProcessBuilder(path + "\\LibreHardwareMonitor.exe");
+                pb.redirectErrorStream(true);
+                pb.start();
             } else
                 throw new Exception("не удалось определить путь к утилите сбора физических данных");
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
+        }
+    }
+
+    public void installUpdater() {
+        //копируем обновлятор в отдельную папку, под защиту дефендера
+        copyFileToDir("Updater.jar", updaterDir);
+        copyFileToDir("vipFiles.ini", updaterDir);
+
+        //создаем там же резервные копии настроек бота
+        copyFileToDir("settings.json", updaterDir);
+        copyFileToDir("MTSUpdate.ps1", updaterDir);
+
+        try {
+            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: создаем там же файл, где будут контрольные данные\n");
+            //создаем там же файл, где будет прописан путь до папки бота (на всякий случай)
+            FileWriter fwYaEyeBotCheckData = new FileWriter(updaterDir + "YaEyeBotCheckData.txt");
+            String jarPath = getJarPath(Main.class);
+            //и в него же пишем контрольные суммы и прочие контрольные данные
+            BotCheckData botCheckData = new BotCheckData(new File(jarPath));
+            fwYaEyeBotCheckData.write(jarPath + "\n" + botCheckData.checkSum);
+            for (var vipFile : botCheckData.vipFiles)
+                fwYaEyeBotCheckData.write("\n" + vipFile);
+            fwYaEyeBotCheckData.close();
+
+            //сбрасываем флаг необходимости обновления
+            FileWriter fwBotNeedUpdate = new FileWriter("BotNeedUpdate.txt");
+            fwBotNeedUpdate.write("0");
+            fwBotNeedUpdate.close();
+        } catch (IOException e) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            e.printStackTrace();
+        }
+
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: создаем ярлык для запуска в автозагрузке обновлятора\n");
+        //создаем ярлык для запуска в автозагрузке обновлятора
+        try {
+            String startupPath = System.getProperty("user.home") +
+                    "\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup";
+
+            createShortcut(updaterDir + "\\Updater.jar", startupPath + "\\Updater.lnk", updaterDir);
+        } catch (Exception e) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Creates a Shortcut at the passed location linked to the passed source<br>
+     * Note - this will pause thread until shortcut has been created
+     * @param source - The path to the source file to create a Shortcut to
+     * @param linkPath - The path of the Shortcut that will be created
+     * @throws FileNotFoundException if the source file cannot be found
+     */
+    public static void createShortcut(String source, String linkPath, String workingDir) throws FileNotFoundException {
+        File sourceFile = new File(source);
+        if(!sourceFile.exists()) {
+            throw new FileNotFoundException("The Path: "+sourceFile.getAbsolutePath()+" does not exist!");
+        }
+        File workingDirFile = new File(workingDir);
+        if(!workingDirFile.exists()) {
+            throw new FileNotFoundException("The Path: "+workingDirFile.getAbsolutePath()+" does not exist!");
+        }
+        try {
+            String absSource = sourceFile.getAbsolutePath();
+            String absWorkingDir = workingDirFile.getAbsolutePath();
+
+            String vbsCode = String.format(
+                    "Set wsObj = WScript.CreateObject(\"WScript.shell\")%n"
+                            + "scPath = \"%s\"%n"
+                            + "Set scObj = wsObj.CreateShortcut(scPath)%n"
+                            + "\tscObj.TargetPath = \"%s\"%n"
+                            + "\tscObj.WorkingDirectory = \"%s\"%n"
+                            + "scObj.Save%n",
+                    linkPath, absSource, absWorkingDir
+            );
+
+            newVBS(vbsCode);
+        } catch (Exception e) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            e.printStackTrace();
+        }
+    }
+    /**
+     * Creates a VBS file with the passed code and runs it, deleting it after the run has completed
+     */
+    private static void newVBS(String code) throws IOException, InterruptedException {
+        File script = File.createTempFile("scvbs", ".vbs"); // File where script will be created
+
+        // Writes to script file
+        FileWriter writer = new FileWriter(script);
+        writer.write(code);
+        writer.close();
+
+        Process p = Runtime.getRuntime().exec( "wscript \""+script.getAbsolutePath()+"\""); // executes vbs code via cmd
+        p.waitFor(); // waits for process to finish
+        if(!script.delete()) { // deletes script
+            System.err.println("Warning Failed to delete temporary VBS File at: \""+script.getAbsolutePath()+"\"");
+        }
+    }
+
+    public static void copyFileToDir(String sourceFileName, String destinationDirectory) {
+        File sourceFile = new File(sourceFileName);
+        File destinationFile = new File(destinationDirectory + sourceFile.getName());
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: копируем " + sourceFile.toPath() + " в " + destinationFile.toPath() + "\n");
+
+        try {
+            File destinationFolder = new File(destinationDirectory);
+            if (!destinationFolder.exists())
+                if (!destinationFolder.mkdirs())
+                    throw new Exception("Не удалось создать " + destinationDirectory);
+
+            Files.copy(sourceFile.toPath(), destinationFile.toPath(), REPLACE_EXISTING);
+        } catch (Exception e) {
+            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Error copying file: " + e.getMessage() + "\n");
         }
     }
 
@@ -133,18 +258,25 @@ public class Main extends JFrame {
         try {
             Runtime.getRuntime().exec("Forfiles -p " + "video\\logs" + " -s -m *.zip -d -" + 3 + " -c \"cmd /c del /q @path\"");
         } catch (IOException ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
         //архивируем логи прошлой сессии
-        SimpleDateFormat formater = new SimpleDateFormat("dd.MM.yyyy_HH.mm");
-        String fName = formater.format(new Date());
-        ZippingVisitor.zipWalking(
-                new File("video\\logs\\latest").toPath(),
-                new File("video\\logs\\" + fName + ".zip").toPath()
-        );
+        try {
+            SimpleDateFormat formater = new SimpleDateFormat("dd.MM.yyyy_HH.mm");
+            String fName = formater.format(new Date());
+            ZippingVisitor.zipWalking(
+                    new File("video\\logs\\latest").toPath(),
+                    new File("video\\logs\\" + fName + ".zip").toPath()
+            );
+        } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            ex.printStackTrace();
+        }
     }
 
     public void initFace() {
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: создаем интерфейс пользователя\n");
         int inset = 4;
         // Создание полей
         // --имя ПК
@@ -153,6 +285,7 @@ public class Main extends JFrame {
             try {
                 pcName = InetAddress.getLocalHost().getHostName();
             } catch (UnknownHostException err) {
+                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
                 err.printStackTrace();
             }
         }
@@ -254,6 +387,19 @@ public class Main extends JFrame {
         //Галка включения отслеживания показателей железа
         hardwareCheckBox = new JCheckBox("Отслеживать показатели железа");
         hardwareCheckBox.setSelected(hardware);
+        hardwareCheckBox.addActionListener(e -> onHardwareCheckBox());
+        hwiShortCheckBox = new JCheckBox("Только видеокарта");
+        hwiShortCheckBox.setSelected(hwiShort);
+        hwiShortCheckBox.addActionListener(e -> onHWIShortCheckBox());
+
+        //Галка включения автообновления программы-датчика
+        autoUpdateCheckBox = new JCheckBox("Автообновление программы-датчика");
+        autoUpdateCheckBox.setSelected(autoUpdate);
+        autoUpdateCheckBox.addActionListener(e -> onAutoUpdateCheckBox());
+        //Галка включения автообновления МТС Remote Play
+        autoUpdateMTSCheckBox = new JCheckBox("Автообновление МТС Remote Play");
+        autoUpdateMTSCheckBox.setSelected(autoUpdateMTS);
+        autoUpdateMTSCheckBox.addActionListener(e -> onAutoUpdateMTSCheckBox());
 
         // --ссылки
         goToBot = new JHyperlink("Бот для отчетов (так же выдает id пользователя)",
@@ -310,6 +456,14 @@ public class Main extends JFrame {
         constraints.gridx = 0;
         constraints.gridy = 6;
         optionsPanel.add(hardwareCheckBox, constraints);
+        constraints.gridx = 1;
+        optionsPanel.add(hwiShortCheckBox, constraints);
+        constraints.gridx = 0;
+        constraints.gridy = 7;
+        optionsPanel.add(autoUpdateCheckBox, constraints);
+        constraints.gridx = 0;
+        constraints.gridy = 8;
+        optionsPanel.add(autoUpdateMTSCheckBox, constraints);
 
         // --панель настроек видеозаписи сессий
         JPanel videoPanel = new JPanel(new GridBagLayout());
@@ -415,16 +569,75 @@ public class Main extends JFrame {
         vldField.setEnabled(videoCheckBox.isSelected());
         if (videoCheckBox.isSelected() && showMsg)
             JOptionPane.showMessageDialog(null,
-                    "Не забудьте включить папку video в исключения ПО," +
+                    "Необходимо включить папку video в исключения ПО," +
                             "\nсохраняющего дефолтное состояние ПК (см. ссылку)");
     }
 
     private void onSavesCheckBox(boolean showMsg) {
         dstPathField.setEnabled(savesCheckBox.isSelected());
+        offsetField.setEnabled(savesCheckBox.isSelected());
+        sldField.setEnabled(savesCheckBox.isSelected());
+        dstPathButton.setEnabled(savesCheckBox.isSelected());
         if (savesCheckBox.isSelected() && showMsg)
             JOptionPane.showMessageDialog(null,
-                    "Не забудьте включить выбранную папку в исключения ПО," +
+                    "Необходимо включить выбранную папку в исключения ПО," +
                             "\nсохраняющего дефолтное состояние ПК");
+    }
+
+    private void onHardwareCheckBox() {
+        hwiShortCheckBox.setEnabled(hardwareCheckBox.isSelected());
+        if (hardwareCheckBox.isSelected())
+            onHWIShortCheckBox();
+    }
+
+    private void onHWIShortCheckBox() {
+        if (!hwiShortCheckBox.isSelected())
+            JOptionPane.showMessageDialog(null,
+                    """
+                            Данные о процессоре, памяти и т.д. - доступны только при запуске с определенными правами.
+                            Если вы настраивали систему по инструкции MTS FogPlay и у вас полностью выключен UAC,
+                            то должно работать.
+                            
+                            В противном случае работа не гарантируется. Можете попробовать настроить задание
+                            в Планировщике заданий по инструкции: YaEyeBot\\lhm\\manual.docx
+                            
+                            Если же галку включить, проблем с правами быть не должно, но вы будете получать только
+                            данные по температуре и загрузке карты""");
+    }
+
+    private void onAutoUpdateCheckBox() {
+        if (autoUpdateCheckBox.isSelected())
+            JOptionPane.showMessageDialog(null,
+                    """
+                            Необходимо включить всю папку YaEyeBot в исключения ПО,
+                            сохраняющего дефолтное состояние ПК.
+                                                        
+                            Если злоумышленник удалит бота, программа автообновления
+                            восстановит его со всеми настройками.""");
+    }
+
+    private void onAutoUpdateMTSCheckBox() {
+        if (autoUpdateMTSCheckBox.isSelected())
+            JOptionPane.showMessageDialog(null,
+                    """
+                            Галка включает реакцию программы-датчика на оповещение бота о появлении
+                            новой версии МТС Remote Play, которая заключается в запуске скрипта MTSUpdate.ps1
+                            (лежит в папке YaEyeBot).
+                                                        
+                            Поскольку настройки игровых ПК сильно отличаются, программа
+                            НЕ ГАРАНТИРУЕТ работоспособность скрипта именно на вашем ПК.
+                            По сути, это просто пример того, как оно работает на ПК автора.
+                                                        
+                            Нужно самостоятельно изменить скрипт MTSUpdate.ps1 с учетом своих настроек,
+                            путей и т.п. Этот файл не будет затираться при обновлении бота.
+                                                        
+                            (В случае изменения MTSUpdate.ps1 - сделайте его резервную копию в папку
+                            ../YaEyeBotUpdater/ - по соседству с папкой бота. Так он окажется под защитой
+                            ПО, сохраняющего дефолтное состояние ПК.)
+                                                        
+                            В любом случае, необходимо включить папку, куда установлен МТС Remote Play,
+                            в исключения ПО, сохраняющего дефолтное состояние ПК
+                            (папку с настройками МТС Remote Play включать не нужно).""");
     }
 
     private void onApproveNewSettings() {
@@ -466,15 +679,24 @@ public class Main extends JFrame {
             jo.put("dstPath", dstPathField.getText());
             jo.put("offset", offsetField.getText());
             jo.put("savesLifeDays", sldField.getText());
-
+            //настройки отслеживания показателей железа
             jo.put("hardware", (hardwareCheckBox.isSelected()) ? "1" : "0");
+            jo.put("hwiShort", (hwiShortCheckBox.isSelected()) ? "1" : "0");
+            //настройки автообновлений
+            jo.put("autoUpdate", (autoUpdateCheckBox.isSelected()) ? "1" : "0");
+            jo.put("autoUpdateMTS", (autoUpdateMTSCheckBox.isSelected()) ? "1" : "0");
 
             fw.write(jo.toJSONString());
             fw.close();
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
             return;
         }
+
+        //обновляем резервные копии настроек бота в папке обновлятора - под защитой дефендера
+        copyFileToDir("settings.json", updaterDir);
+        copyFileToDir("MTSUpdate.ps1", updaterDir);
 
         JOptionPane.showMessageDialog(null, "Настройки сохранены и вступят в силу после перезапуска программы");
         this.dispatchEvent(new WindowEvent(this, WindowEvent.WINDOW_CLOSING));
@@ -494,6 +716,7 @@ public class Main extends JFrame {
             }
             chetTray = true;
         } catch (AWTException ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
     }
@@ -503,6 +726,7 @@ public class Main extends JFrame {
         try {
             lock = new ServerSocket(55555);
         } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
             System.exit(0);//завершаем программу
         }
@@ -542,9 +766,11 @@ public class Main extends JFrame {
             }
         });
 
-        //запускаем пересылку данных и отслеживание мыши для захвата видео при движении
-        if (app.listener != null && app.video) app.listener.start();
+        //запускаем отслеживание событий для начала захвата видео
+        if (app.listener != null) app.listener.start();
+        //запускаем отслеживание событий для начала резервирования сейвов
         if (app.asListener != null && app.saves) app.asListener.start();
+        //запускаем пересылку данных
         if (app.sender != null) {
             app.sender.setDaemon(true);
             app.sender.start();
@@ -555,28 +781,24 @@ public class Main extends JFrame {
     }
 
     public void onExit() {
-        if (chat != null) chat.finish();
         if (listener != null) listener.finish();
         if (sender != null) sender.interrupt();
         if (asListener != null) asListener.finish();
 
-        //перед выходом - отпускаем порт
         try {
-            String line;
-            boolean found = false;
-            Process p = Runtime.getRuntime().exec("tasklist /FI \"IMAGENAME eq OpenHardwareMonitor.exe\"");
-            BufferedReader input = new BufferedReader
-                    (new InputStreamReader(p.getInputStream(), "866"));
-            while ((line = input.readLine()) != null)
-                if (line.contains("explorer")) found = true;
-            input.close();
-            if (!found) {
-                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: OHM открыт - гасим его\n");
-                Runtime.getRuntime().exec("taskkill /IM OpenHardwareMonitor.exe /F");
-            }
-
+            //перед выходом - гасим LibreHardwareMonitor
+            java.util.List<String> command = new ArrayList<>();
+            command.add("taskkill");
+            command.add("/IM");
+            command.add("LibreHardwareMonitor.exe");
+            command.add("/F");
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            pb.start();
+            //и отпускаем порт
             lock.close();
         } catch (IOException ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             ex.printStackTrace();
         }
     }
@@ -635,18 +857,82 @@ public class Main extends JFrame {
 
             hardware = (jsonObject.get("hardware") != null) &&
                     Objects.equals(jsonObject.get("hardware").toString(), "1");
+            hwiShort = (jsonObject.get("hwiShort") != null) &&
+                    Objects.equals(jsonObject.get("hwiShort").toString(), "1");
+
+            autoUpdate = (jsonObject.get("autoUpdate") != null) &&
+                    Objects.equals(jsonObject.get("autoUpdate").toString(), "1");
+            autoUpdateMTS = (jsonObject.get("autoUpdateMTS") != null) &&
+                    Objects.equals(jsonObject.get("autoUpdateMTS").toString(), "1");
         } catch (Exception err) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
         }
     }
+
+    private void checkNeedUpdateInstall() {
+        String needUpdate = "0";
+        try {
+            FileReader fr = new FileReader(outNUStorage);
+            BufferedReader buffReader = new BufferedReader(fr);
+            if (buffReader.ready())
+                needUpdate = buffReader.readLine();
+            fr.close();
+            buffReader.close();
+        } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            ex.printStackTrace();
+        }
+        if (Objects.equals(needUpdate, "install")) {
+            //при первом запуске, в BotNeedUpdate.txt записана метка, требующая установки обновлятора
+            installUpdater();
+        }
+    }
+
+    private void checkMTSNeedUpdate(){
+        String needUpdate = "0";
+        try {
+            FileReader fr = new FileReader(outMTSNUStorage);
+            BufferedReader buffReader = new BufferedReader(fr);
+            if (buffReader.ready())
+                needUpdate = buffReader.readLine();
+            fr.close();
+            buffReader.close();
+
+            if (Objects.equals(needUpdate, "1") && autoUpdateMTS) {
+                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Запускаем обновление МТС\n");
+                List<String> command = new ArrayList<>();
+                command.add("powershell");
+                command.add("-ExecutionPolicy");
+                command.add("ByPass");
+                command.add("-file");
+                command.add("\"MTSUpdate.ps1\"");
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                //ждем завершения процесса
+                process.waitFor();
+            }
+
+            FileWriter fw = new FileWriter(Main.outMTSNUStorage);
+            fw.write("0");
+            fw.close();
+        } catch (Exception ex) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+            ex.printStackTrace();
+        }
+    }
+
     public static String getJarPath(Class aclass) {
         try {
             return new File(aclass.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent();
         } catch (Exception e) {
+            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             e.printStackTrace();
         }
-        return null;
+        return System.getProperty("user.dir");
     }
+
     private static class NumVerifier extends InputVerifier {
         public enum fieldType {
             INT, BYTE, LONG
