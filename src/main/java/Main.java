@@ -5,28 +5,28 @@ import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseMotionListener;
-import java.awt.event.WindowEvent;
-import java.awt.event.WindowListener;
+import java.awt.event.*;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.List;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Objects;
+import java.util.UUID;
 
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class Main extends JFrame {
     //guid for Inno Setup: A2C1BDFF-AC19-402E-90EC-B56B00036870
-    public static final String version = "3.3.2";
+    public static final String version = "3.3.3";
     public static final String outNUStorage = "BotNeedUpdate.txt";
     public static final String outMTSNUStorage = "MTSNeedUpdate.txt";
     public static final String updaterDir = "../YaEyeBotUpdater/";
+    public static final int pcNameLimit = 20;
 
     public static ServerSocket lock;
 
@@ -78,8 +78,6 @@ public class Main extends JFrame {
         System.setErr(new PrintStream(new FileOutputStream("video\\logs\\latest\\err.log")));
         //чтение настроек
         readSetting();
-        //проверяем необходимость обновления МТС Remote Play
-        checkMTSNeedUpdate();
         //проверяем необходимость установки лаунчера-обновлятора - происходит только при первом зауске
         checkNeedUpdateInstall();
 
@@ -94,6 +92,7 @@ public class Main extends JFrame {
         MouseMotionListener mouM = new MouseMotionListener() {
             public void mouseDragged(MouseEvent ev) {
             }
+
             //при наведении
             public void mouseMoved(MouseEvent ev) {
                 iconTr.setToolTip("Двойной щелчок - развернуть");
@@ -110,7 +109,7 @@ public class Main extends JFrame {
         //создаем интерфейс пользователя
         initFace();
         //запускаем LibreHardwareMonitor.exe
-        if(hardware && !hwiShort)
+        if (hardware && !hwiShort)
             runLHM();
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
@@ -120,13 +119,13 @@ public class Main extends JFrame {
         }
     }
 
-    public void  runLHM(){
+    public void runLHM() {
         try {
             //удаляем старые логи
             Runtime.getRuntime().exec("Forfiles -p lhm -s -m *.csv -d -" + 3 + " -c \"cmd /c del /q @path\"");
 
             String path = getJarPath(Main.class);
-            if (path != null){
+            if (path != null) {
                 path += "\\lhm";
                 ProcessBuilder pb = new ProcessBuilder(path + "\\LibreHardwareMonitor.exe");
                 pb.redirectErrorStream(true);
@@ -185,18 +184,19 @@ public class Main extends JFrame {
     /**
      * Creates a Shortcut at the passed location linked to the passed source<br>
      * Note - this will pause thread until shortcut has been created
-     * @param source - The path to the source file to create a Shortcut to
+     *
+     * @param source   - The path to the source file to create a Shortcut to
      * @param linkPath - The path of the Shortcut that will be created
      * @throws FileNotFoundException if the source file cannot be found
      */
     public static void createShortcut(String source, String linkPath, String workingDir) throws FileNotFoundException {
         File sourceFile = new File(source);
-        if(!sourceFile.exists()) {
-            throw new FileNotFoundException("The Path: "+sourceFile.getAbsolutePath()+" does not exist!");
+        if (!sourceFile.exists()) {
+            throw new FileNotFoundException("The Path: " + sourceFile.getAbsolutePath() + " does not exist!");
         }
         File workingDirFile = new File(workingDir);
-        if(!workingDirFile.exists()) {
-            throw new FileNotFoundException("The Path: "+workingDirFile.getAbsolutePath()+" does not exist!");
+        if (!workingDirFile.exists()) {
+            throw new FileNotFoundException("The Path: " + workingDirFile.getAbsolutePath() + " does not exist!");
         }
         try {
             String absSource = sourceFile.getAbsolutePath();
@@ -218,6 +218,7 @@ public class Main extends JFrame {
             e.printStackTrace();
         }
     }
+
     /**
      * Creates a VBS file with the passed code and runs it, deleting it after the run has completed
      */
@@ -229,10 +230,10 @@ public class Main extends JFrame {
         writer.write(code);
         writer.close();
 
-        Process p = Runtime.getRuntime().exec( "wscript \""+script.getAbsolutePath()+"\""); // executes vbs code via cmd
+        Process p = Runtime.getRuntime().exec("wscript \"" + script.getAbsolutePath() + "\""); // executes vbs code via cmd
         p.waitFor(); // waits for process to finish
-        if(!script.delete()) { // deletes script
-            System.err.println("Warning Failed to delete temporary VBS File at: \""+script.getAbsolutePath()+"\"");
+        if (!script.delete()) { // deletes script
+            System.err.println("Warning Failed to delete temporary VBS File at: \"" + script.getAbsolutePath() + "\"");
         }
     }
 
@@ -289,10 +290,12 @@ public class Main extends JFrame {
                 err.printStackTrace();
             }
         }
-        pcNameField = new JTextField(pcName, 20);
+        pcNameField = new JTextField(pcName, pcNameLimit);
+        pcNameField.addKeyListener(new TextMaxLengthVerifier(pcNameField, pcNameLimit));
         // --имя ПК на сайте МТС
         mtsNameLabel = new JLabel("Введите имя ПК на МТС Fog Play");
-        mtsNameField = new JTextField(mtsName, 20);
+        mtsNameField = new JTextField(mtsName, pcNameLimit);
+        mtsNameField.addKeyListener(new TextMaxLengthVerifier(mtsNameField, pcNameLimit));
         //если pcGuid уже выделен - запрещаем смену имени
         if (!Objects.equals(pcGuid, "")) pcNameField.setEnabled(false);
 
@@ -597,10 +600,10 @@ public class Main extends JFrame {
                             Данные о процессоре, памяти и т.д. - доступны только при запуске с определенными правами.
                             Если вы настраивали систему по инструкции MTS FogPlay и у вас полностью выключен UAC,
                             то должно работать.
-                            
+                                                        
                             В противном случае работа не гарантируется. Можете попробовать настроить задание
                             в Планировщике заданий по инструкции: YaEyeBot\\lhm\\manual.docx
-                            
+                                                        
                             Если же галку включить, проблем с правами быть не должно, но вы будете получать только
                             данные по температуре и загрузке карты""");
     }
@@ -643,12 +646,21 @@ public class Main extends JFrame {
     private void onApproveNewSettings() {
         //проверки корректности ввода
         String msg = "";
-        if (Objects.equals(pcNameField.getText(), "")) msg = "Уникальное имя ПК - обязательное поле";
-        if (Objects.equals(userIdField.getText(), "")) msg = "Ваш id в телеграмм - обязательное поле";
+        if (Objects.equals(pcNameField.getText(), ""))
+            msg = "Уникальное имя ПК - обязательное поле";
+        if (pcNameField.getText().length() > pcNameLimit)
+            msg = "Превышена максимальная длина имени ПК (" + pcNameLimit + ")";
+        if (mtsNameField.getText().length() > pcNameLimit)
+            msg = "Превышена максимальная длина имени ПК на МТС Fog Play (" + pcNameLimit + ")";
+        if (Objects.equals(userIdField.getText(), ""))
+            msg = "Ваш id в телеграмм - обязательное поле";
         if (videoCheckBox.isSelected()) {
-            if (Objects.equals(fpsField.getText(), "")) msg = "Частота кадров - обязательное поле";
-            if (Objects.equals(durationField.getText(), "")) msg = "Длительность записи - обязательное поле";
-            if (Objects.equals(vldField.getText(), "")) msg = "Срок хранения видео - обязательное поле";
+            if (Objects.equals(fpsField.getText(), ""))
+                msg = "Частота кадров - обязательное поле";
+            if (Objects.equals(durationField.getText(), ""))
+                msg = "Длительность записи - обязательное поле";
+            if (Objects.equals(vldField.getText(), ""))
+                msg = "Срок хранения видео - обязательное поле";
 
         }
         if (!msg.equals("")) {
@@ -889,40 +901,6 @@ public class Main extends JFrame {
         }
     }
 
-    private void checkMTSNeedUpdate(){
-        String needUpdate = "0";
-        try {
-            FileReader fr = new FileReader(outMTSNUStorage);
-            BufferedReader buffReader = new BufferedReader(fr);
-            if (buffReader.ready())
-                needUpdate = buffReader.readLine();
-            fr.close();
-            buffReader.close();
-
-            if (Objects.equals(needUpdate, "1") && autoUpdateMTS) {
-                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Запускаем обновление МТС\n");
-                List<String> command = new ArrayList<>();
-                command.add("powershell");
-                command.add("-ExecutionPolicy");
-                command.add("ByPass");
-                command.add("-file");
-                command.add("\"MTSUpdate.ps1\"");
-                ProcessBuilder pb = new ProcessBuilder(command);
-                pb.redirectErrorStream(true);
-                Process process = pb.start();
-                //ждем завершения процесса
-                process.waitFor();
-            }
-
-            FileWriter fw = new FileWriter(Main.outMTSNUStorage);
-            fw.write("0");
-            fw.close();
-        } catch (Exception ex) {
-            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
-            ex.printStackTrace();
-        }
-    }
-
     public static String getJarPath(Class aclass) {
         try {
             return new File(aclass.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent();
@@ -960,6 +938,24 @@ public class Main extends JFrame {
                 input.setBackground(Color.PINK);
                 return false;
             }
+        }
+    }
+
+    private static class TextMaxLengthVerifier extends KeyAdapter {
+        private final JTextField input;
+        private final int limit;
+
+        public TextMaxLengthVerifier(JTextField input, int limit) {
+            this.input = input;
+            this.limit = limit;
+        }
+
+        @Override
+        public void keyTyped(KeyEvent evt) {
+            if (input.getText().length() > limit &&
+                    evt.getKeyChar() != KeyEvent.VK_BACK_SPACE &&
+                    evt.getKeyChar() != KeyEvent.VK_DELETE)
+                evt.consume();
         }
     }
 }

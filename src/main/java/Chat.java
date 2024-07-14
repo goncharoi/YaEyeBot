@@ -95,6 +95,7 @@ public class Chat extends JFrame implements NativeKeyListener {
         setContentPane(mainPanel);
 
         setVisible(false);
+        setAlwaysOnTop(true);
         //отслеживание нажатий запускаем, если использование чата разрешено на ПК
         if (!GlobalScreen.isNativeHookRegistered() && this.chatFlag) {
             try {
@@ -119,9 +120,9 @@ public class Chat extends JFrame implements NativeKeyListener {
             //погнали обновлять историю чата
             do {
                 int lastBotNeedUpdateCount = 0;
-                int lastMTSNeedUpdateCount = 0;
                 int lastAlarmsCount = 0;
                 String lastAlarm = "";
+                StringBuilder response = new StringBuilder();
 
                 try {
                     try {
@@ -135,88 +136,107 @@ public class Chat extends JFrame implements NativeKeyListener {
                             BufferedReader in = new BufferedReader(
                                     new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8));
                             String inputLine;
-                            StringBuilder response = new StringBuilder();
 
                             while ((inputLine = in.readLine()) != null) {
-                                switch (inputLine) {
-                                    case "BotNeedUpdate" ->
-                                        //пришел сигнал об обновлении бота - считаем сколько таких сигналов в истории чата
-                                            lastBotNeedUpdateCount++;
-                                    case "MTSNeedUpdate" ->
-                                        //пришел сигнал об обновлении МТС - считаем сколько таких сигналов в истории чата
-                                            lastMTSNeedUpdateCount++;
-                                    default -> {
-                                        if (inputLine.startsWith("#alarm")) {
-                                            //пришло оповещение от админа - считаем сколько таких оповещений в истории чата
-                                            //и запоминаем последнее
-                                            lastAlarmsCount++;
-                                            lastAlarm = inputLine;
-                                        } else {
-                                            inputLine = inputLine.replace("⚡\uD83D\uDDA5#" + pcName, "Вы");
-                                            response.append((inputLine.equals("")) ? "\n" : inputLine + "\n");
-                                        }
+                                //пришел сигнал об обновлении бота - считаем сколько таких сигналов в истории чата
+                                if (inputLine.equals("BotNeedUpdate")) {
+                                    lastBotNeedUpdateCount++;
+                                } else {
+                                    if (inputLine.startsWith("#alarm")) {
+                                        //пришло оповещение от админа - считаем сколько таких оповещений в истории чата
+                                        //и запоминаем последнее
+                                        lastAlarmsCount++;
+                                        lastAlarm = inputLine;
+                                    } else if (inputLine.startsWith("#restart")) {
+                                        //пришел сигнал на перезагрузку - проверяем pcGuid и перезагружаем комп
+                                        restartPC(inputLine);
+                                    } else {
+                                        inputLine = inputLine.replace("⚡\uD83D\uDDA5#" + pcName, "Вы");
+                                        response.append((inputLine.equals("")) ? "\n" : inputLine + "\n");
                                     }
                                 }
                             }
                             in.close();
+                        }
+                        con.disconnect();
 
-                            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Было/стало: оповещений (" + prevAlarmsCount + "/" + lastAlarmsCount +
-                                    "), сигналов об обновлении бота (" + prevBotNeedUpdateCount + "/" + lastBotNeedUpdateCount +
-                                    "), сигналов об обновлении МТС (" + prevMTSNeedUpdateCount + "/" + lastMTSNeedUpdateCount +")\n");
-                            //если сигналов об обновлении бота больше, чем при прошлой проверке истории, значит пришел новый -
-                            //ставим метку, о необходимости обновления бота
-                            if (lastBotNeedUpdateCount > prevBotNeedUpdateCount) {
-                                prevBotNeedUpdateCount = lastBotNeedUpdateCount;
-                                try {
-                                    FileWriter fw = new FileWriter(Main.outNUStorage);
-                                    fw.write("1");
-                                    fw.close();
-                                } catch (Exception ex) {
-                                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
-                                    ex.printStackTrace();
-                                }
+                        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Было/стало: оповещений (" + prevAlarmsCount + "/" + lastAlarmsCount +
+                                "), сигналов об обновлении бота (" + prevBotNeedUpdateCount + "/" + lastBotNeedUpdateCount + ")\n");
+                        //если сигналов об обновлении бота больше, чем при прошлой проверке истории, значит пришел новый -
+                        //ставим метку, о необходимости обновления бота
+                        if (lastBotNeedUpdateCount > prevBotNeedUpdateCount) {
+                            prevBotNeedUpdateCount = lastBotNeedUpdateCount;
+                            try {
+                                FileWriter fw = new FileWriter(Main.outNUStorage);
+                                fw.write("1");
+                                fw.close();
+                            } catch (Exception ex) {
+                                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+                                ex.printStackTrace();
                             }
-                            //если сигналов об обновлении МТС больше, чем при прошлой проверке истории, значит пришел новый -
-                            //проверяем, включено ли обновление МТС, и если да -
-                            //запускаем обновление МТС (если ПК не в игре, иначе - откладываем до перезагрузки, выставляем флаг)
-                            if (lastMTSNeedUpdateCount > prevMTSNeedUpdateCount && autoUpdateMTS) {
-                                prevMTSNeedUpdateCount = lastMTSNeedUpdateCount;
-                                try {
-                                    if (gameMode) {
-                                        FileWriter fw = new FileWriter(Main.outMTSNUStorage);
-                                        fw.write("1");
-                                        fw.close();
-                                    } else {
-                                        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Запускаем обновление МТС\n");
-                                        java.util.List<String> command = new ArrayList<>();
-                                        command.add("powershell");
-                                        command.add("-ExecutionPolicy");
-                                        command.add("ByPass");
-                                        command.add("-file");
-                                        command.add("\"MTSUpdate.ps1\"");
-                                        ProcessBuilder pb = new ProcessBuilder(command);
-                                        pb.redirectErrorStream(true);
-                                        Process process = pb.start();
-                                        //ждем завершения процесса
-                                        process.waitFor();
-                                    }
-                                } catch (Exception ex) {
-                                    System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
-                                    ex.printStackTrace();
-                                }
-                            }
-                            //если оповещений от админа больше, чем при прошлой проверке истории, значит пришло новое -
-                            //показываем его
-                            if (lastAlarmsCount > prevAlarmsCount) {
-                                prevAlarmsCount = lastAlarmsCount;
-                                showAlarmMessage(lastAlarm);
-                            }
+                        }
+                        //если оповещений от админа больше, чем при прошлой проверке истории, значит пришло новое -
+                        //показываем его
+                        if (lastAlarmsCount > prevAlarmsCount) {
+                            prevAlarmsCount = lastAlarmsCount;
+                            showAlarmMessage(lastAlarm);
+                        }
 
-                            historyBox.setText(response.toString());
-                            JScrollBar vsb = historyScrollPane.getVerticalScrollBar();
-                            vsb.setValue(vsb.getMaximum());
+                        historyBox.setText(response.toString());
+                        JScrollBar vsb = historyScrollPane.getVerticalScrollBar();
+                        vsb.setValue(vsb.getMaximum());
 
+                        //если ПК не в игре и включено обновление МТС, проверяем обновку МТС раз в минуту
+                        if (!gameMode && autoUpdateMTS) {
+                            String prevLen = "";
+                            String newLen = "";
+
+                            url = new URL("https://fogplay.mts.ru/download/MTS_Remoteplay-install-win64.exe");
+                            con = (HttpURLConnection) url.openConnection();
+                            con.setRequestMethod("GET");
+                            con.setRequestProperty("User-Agent", "Mozilla/5.0");
+                            if (con.getResponseCode() == HttpURLConnection.HTTP_OK)  // success
+                                newLen = String.valueOf(con.getHeaderFields().get("Content-Length").get(0));
                             con.disconnect();
+
+                            FileReader fr = new FileReader(Main.outMTSNUStorage);
+                            BufferedReader buffReader = new BufferedReader(fr);
+                            if (buffReader.ready())
+                                prevLen = buffReader.readLine();
+                            fr.close();
+                            buffReader.close();
+
+                            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Старый размер дистрибутива = " + prevLen + ", новый = " + newLen  + "\n");
+                            //если предыдущих замеров не было, просто инициализируем
+                            if (Objects.equals(prevLen, "") ||
+                                    Objects.equals(prevLen, "0") ||
+                                    Objects.equals(prevLen, "1")
+                            ){
+                                FileWriter fw = new FileWriter(Main.outMTSNUStorage);
+                                fw.write(newLen);
+                                fw.close();
+
+                                prevLen = newLen;
+                            }
+                            //если изменился размер дистрибутива - запускаем обновление МТС
+                            if (!Objects.equals(newLen, prevLen)) {
+                                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Запускаем обновление МТС\n");
+                                java.util.List<String> command = new ArrayList<>();
+                                command.add("powershell");
+                                command.add("-ExecutionPolicy");
+                                command.add("ByPass");
+                                command.add("-file");
+                                command.add("\"MTSUpdate.ps1\"");
+                                ProcessBuilder pb = new ProcessBuilder(command);
+                                pb.redirectErrorStream(true);
+                                Process process = pb.start();
+                                //ждем завершения процесса
+                                process.waitFor();
+
+                                FileWriter fw = new FileWriter(Main.outMTSNUStorage);
+                                fw.write(newLen);
+                                fw.close();
+                            }
                         }
                     } catch (IOException err) {
                         System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
@@ -231,11 +251,11 @@ public class Chat extends JFrame implements NativeKeyListener {
         listener.start();
     }
 
-    public void gameModeOn(){
+    public void gameModeOn() {
         gameMode = true;
         //если включена опция чата с игроком, ускоряем получение истории чата - обновляем её раз в 5 сек.,
         //иначе - слушаем только системные сообщения, которые получаем раз в минуту
-        if(chatFlag)
+        if (chatFlag)
             pause = 5000;
     }
 
@@ -269,6 +289,23 @@ public class Chat extends JFrame implements NativeKeyListener {
             timer.start();
 
             dialog.setVisible(true); // if modal, application will pause here
+        }
+    }
+
+    private void restartPC(String inputLine) throws IOException {
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Перезагружаем комп\n");
+//формат оповещения должен быть строго: #restart <guid ПК>
+        String pcGuidFromMessage = inputLine.replace("#restart", "").trim();
+        if (Objects.equals(pcGuidFromMessage, pcGuid)) {
+            java.util.List<String> command = new ArrayList<>();
+            command.add("shutdown");
+            command.add("-t");
+            command.add("0");
+            command.add("-r");
+            command.add("-f");
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            pb.start();
         }
     }
 
