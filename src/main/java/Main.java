@@ -22,7 +22,7 @@ import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class Main extends JFrame {
     //guid for Inno Setup: A2C1BDFF-AC19-402E-90EC-B56B00036870
-    public static final String version = "3.3.3";
+    public static final String version = "3.3.4";
     public static final String outNUStorage = "BotNeedUpdate.txt";
     public static final String outMTSNUStorage = "MTSNeedUpdate.txt";
     public static final String updaterDir = "../YaEyeBotUpdater/";
@@ -708,7 +708,6 @@ public class Main extends JFrame {
 
         //обновляем резервные копии настроек бота в папке обновлятора - под защитой дефендера
         copyFileToDir("settings.json", updaterDir);
-        copyFileToDir("MTSUpdate.ps1", updaterDir);
 
         JOptionPane.showMessageDialog(null, "Настройки сохранены и вступят в силу после перезапуска программы");
         this.dispatchEvent(new WindowEvent(this, WindowEvent.WINDOW_CLOSING));

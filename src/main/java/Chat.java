@@ -121,6 +121,8 @@ public class Chat extends JFrame implements NativeKeyListener {
             do {
                 int lastBotNeedUpdateCount = 0;
                 int lastAlarmsCount = 0;
+                String prevLen = "";
+                String newLen = "";
                 String lastAlarm = "";
                 StringBuilder response = new StringBuilder();
 
@@ -137,6 +139,8 @@ public class Chat extends JFrame implements NativeKeyListener {
                                     new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8));
                             String inputLine;
 
+                            //первая строка - всегда содержит длину дистрибутива
+                            newLen = in.readLine();
                             while ((inputLine = in.readLine()) != null) {
                                 //пришел сигнал об обновлении бота - считаем сколько таких сигналов в истории чата
                                 if (inputLine.equals("BotNeedUpdate")) {
@@ -159,45 +163,51 @@ public class Chat extends JFrame implements NativeKeyListener {
                             in.close();
                         }
                         con.disconnect();
+                    } catch (IOException err) {
+                        System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+                        err.printStackTrace();
+                    }
 
-                        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Было/стало: оповещений (" + prevAlarmsCount + "/" + lastAlarmsCount +
-                                "), сигналов об обновлении бота (" + prevBotNeedUpdateCount + "/" + lastBotNeedUpdateCount + ")\n");
-                        //если сигналов об обновлении бота больше, чем при прошлой проверке истории, значит пришел новый -
-                        //ставим метку, о необходимости обновления бота
-                        if (lastBotNeedUpdateCount > prevBotNeedUpdateCount) {
-                            prevBotNeedUpdateCount = lastBotNeedUpdateCount;
-                            try {
-                                FileWriter fw = new FileWriter(Main.outNUStorage);
-                                fw.write("1");
-                                fw.close();
-                            } catch (Exception ex) {
-                                System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
-                                ex.printStackTrace();
-                            }
+                    System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Было/стало: оповещений (" + prevAlarmsCount + "/" + lastAlarmsCount +
+                            "), сигналов об обновлении бота (" + prevBotNeedUpdateCount + "/" + lastBotNeedUpdateCount + ")\n");
+                    //если сигналов об обновлении бота больше, чем при прошлой проверке истории, значит пришел новый -
+                    //ставим метку, о необходимости обновления бота
+                    if (lastBotNeedUpdateCount > prevBotNeedUpdateCount) {
+                        prevBotNeedUpdateCount = lastBotNeedUpdateCount;
+                        try {
+                            FileWriter fw = new FileWriter(Main.outNUStorage);
+                            fw.write("1");
+                            fw.close();
+                        } catch (Exception ex) {
+                            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+                            ex.printStackTrace();
                         }
-                        //если оповещений от админа больше, чем при прошлой проверке истории, значит пришло новое -
-                        //показываем его
-                        if (lastAlarmsCount > prevAlarmsCount) {
-                            prevAlarmsCount = lastAlarmsCount;
-                            showAlarmMessage(lastAlarm);
-                        }
+                    }
+                    //если оповещений от админа больше, чем при прошлой проверке истории, значит пришло новое -
+                    //показываем его
+                    if (lastAlarmsCount > prevAlarmsCount) {
+                        prevAlarmsCount = lastAlarmsCount;
+                        showAlarmMessage(lastAlarm);
+                    }
 
-                        historyBox.setText(response.toString());
-                        JScrollBar vsb = historyScrollPane.getVerticalScrollBar();
-                        vsb.setValue(vsb.getMaximum());
+                    historyBox.setText(response.toString());
+                    JScrollBar vsb = historyScrollPane.getVerticalScrollBar();
+                    vsb.setValue(vsb.getMaximum());
 
-                        //если ПК не в игре и включено обновление МТС, проверяем обновку МТС раз в минуту
-                        if (!gameMode && autoUpdateMTS) {
-                            String prevLen = "";
-                            String newLen = "";
-
-                            url = new URL("https://fogplay.mts.ru/download/MTS_Remoteplay-install-win64.exe");
-                            con = (HttpURLConnection) url.openConnection();
-                            con.setRequestMethod("GET");
-                            con.setRequestProperty("User-Agent", "Mozilla/5.0");
-                            if (con.getResponseCode() == HttpURLConnection.HTTP_OK)  // success
-                                newLen = String.valueOf(con.getHeaderFields().get("Content-Length").get(0));
-                            con.disconnect();
+                    //если ПК не в игре и включено обновление МТС, проверяем обновку МТС раз в минуту
+                    if (!gameMode && autoUpdateMTS) {
+                        try {
+                            if (Objects.equals(newLen, "") || newLen == null) {
+                                URL url = new URL("https://fogplay.mts.ru/download/MTS_Remoteplay-install-win64.exe");
+                                HttpURLConnection con = (HttpURLConnection) url.openConnection();
+                                con.setRequestMethod("GET");
+                                con.setRequestProperty("User-Agent", "Mozilla/5.0");
+                                if (con.getResponseCode() == HttpURLConnection.HTTP_OK)  // success
+                                    newLen = String.valueOf(con.getHeaderFields().get("Content-Length").get(0));
+                                con.disconnect();
+                                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Новый размер дистрибутива определен через сайт МТС и = " + newLen + "\n");
+                            } else
+                                System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Новый размер дистрибутива определен через сервер бота и = " + newLen + "\n");
 
                             FileReader fr = new FileReader(Main.outMTSNUStorage);
                             BufferedReader buffReader = new BufferedReader(fr);
@@ -206,12 +216,12 @@ public class Chat extends JFrame implements NativeKeyListener {
                             fr.close();
                             buffReader.close();
 
-                            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Старый размер дистрибутива = " + prevLen + ", новый = " + newLen  + "\n");
+                            System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Старый размер дистрибутива = " + prevLen + "\n");
                             //если предыдущих замеров не было, просто инициализируем
                             if (Objects.equals(prevLen, "") ||
                                     Objects.equals(prevLen, "0") ||
                                     Objects.equals(prevLen, "1")
-                            ){
+                            ) {
                                 FileWriter fw = new FileWriter(Main.outMTSNUStorage);
                                 fw.write(newLen);
                                 fw.close();
@@ -237,10 +247,10 @@ public class Chat extends JFrame implements NativeKeyListener {
                                 fw.write(newLen);
                                 fw.close();
                             }
+                        } catch (IOException err) {
+                            System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
+                            err.printStackTrace();
                         }
-                    } catch (IOException err) {
-                        System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
-                        err.printStackTrace();
                     }
                     sleep(pause);        //Приостанавливает поток
                 } catch (InterruptedException e) {
