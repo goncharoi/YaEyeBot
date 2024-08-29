@@ -91,7 +91,7 @@ public class Sender extends Thread {
 
                     info[4] = info[4].replaceAll(" ", "_"); //читаемое описание, если есть
                     if (info[2].equals("")) info[2] = info[3]; //если версия файла пустая, берется версия продукта
-                    String name = FilenameUtils.getBaseName(info[1]);
+                    String name = FilenameUtils.getBaseName(info[4].replaceAll(":", "_"));
                     if (info[4].equals("")) info[4] = name; //если описание файла пустое, берется его имя
 
                     processes.add(
@@ -279,6 +279,7 @@ public class Sender extends Thread {
         message.put("games", jGames);
         //список параметров оборудования
         message.put("hardware", jHardware);
+        message.put("frontendVersion", Main.version);
 
         //пакет для сообщения
         JSONObject mainObj = new JSONObject();

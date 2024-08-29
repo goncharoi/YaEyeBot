@@ -303,20 +303,11 @@ public class Chat extends JFrame implements NativeKeyListener {
     }
 
     private void restartPC(String inputLine) throws IOException {
-        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Перезагружаем комп\n");
+        System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Перезагружаем комп по команде\n");
 //формат оповещения должен быть строго: #restart <guid ПК>
         String pcGuidFromMessage = inputLine.replace("#restart", "").trim();
-        if (Objects.equals(pcGuidFromMessage, pcGuid)) {
-            java.util.List<String> command = new ArrayList<>();
-            command.add("shutdown");
-            command.add("-t");
-            command.add("0");
-            command.add("-r");
-            command.add("-f");
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.redirectErrorStream(true);
-            pb.start();
-        }
+        if (Objects.equals(pcGuidFromMessage, pcGuid))
+            Utils.restartPC();
     }
 
     public void finish() {

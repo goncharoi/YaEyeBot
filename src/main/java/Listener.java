@@ -11,17 +11,19 @@ public class Listener extends Thread{
     protected Byte fps; //частота кадров/сек. видеозаписи сессий
     protected Integer duration; //максимальная длительность одной видеозаписи (в минутах)
     protected Byte videosLifeDays; //длительность хранения видеозаписей (в днях)
+    protected boolean restartIfNotWorking; //длительность хранения видеозаписей (в днях)
 
     private final Chat chat;
     private  final  boolean videoFlag;
 
-    public Listener(boolean videoFlag, Byte fps, Integer duration, Byte videosLifeDays, String pcName, String userId, String pcGuid, boolean chatFlag, boolean autoUpdateMTS) {
+    public Listener(boolean videoFlag, Byte fps, Integer duration, Byte videosLifeDays, String pcName, String userId, String pcGuid, boolean chatFlag, boolean autoUpdateMTS, boolean restartIfNotWorking) {
         super();
 
         this.videoFlag = videoFlag;
         this.fps = fps;
         this.duration = duration;
         this.videosLifeDays = videosLifeDays;
+        this.restartIfNotWorking = restartIfNotWorking;
 
         this.chat = new Chat(pcName, userId, pcGuid, chatFlag, autoUpdateMTS);
     }
@@ -51,6 +53,9 @@ public class Listener extends Thread{
     public void run() {
         (new Recorder(false, fps, duration, videosLifeDays)).encodePreviousVideo();
 
+        long time_gone = 0L;
+        final long hour = 60 * 60; //час
+
         do {
             try {
                 //проверяем файл, если есть
@@ -77,6 +82,14 @@ public class Listener extends Thread{
                     catchAction();
                     return;
                 }
+
+                //Если включена такая опция, перезагружаем комп каждый час в простое
+                if (time_gone >= hour && restartIfNotWorking && Objects.equals(start_recording, "0")) {
+                    System.out.printf("%1$tF %1$tT %2$s", new Date(), ":: Перезагружаем комп по расписанию\n");
+                    Utils.restartPC();
+                }
+
+                time_gone++;
                 sleep(1000); //Приостанавливает поток
             } catch (InterruptedException e) {
                 return;    //Завершение потока после прерывания

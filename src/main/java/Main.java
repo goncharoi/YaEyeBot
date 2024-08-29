@@ -22,7 +22,7 @@ import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class Main extends JFrame {
     //guid for Inno Setup: A2C1BDFF-AC19-402E-90EC-B56B00036870
-    public static final String version = "3.3.4";
+    public static final String version = "3.3.5";
     public static final String outNUStorage = "BotNeedUpdate.txt";
     public static final String outMTSNUStorage = "MTSNeedUpdate.txt";
     public static final String updaterDir = "../YaEyeBotUpdater/";
@@ -41,9 +41,9 @@ public class Main extends JFrame {
     protected JLabel pcNameLabel, mtsNameLabel, userIdLabel, dbPathLabel, dstPathLabel, approveLabel, fpsLabel, durationLabel, offsetLabel, vldLabel, sldLabel;
     protected JTextField pcNameField, mtsNameField, userIdField, dbPathField, dstPathField, fpsField, durationField, offsetField, vldField, sldField;
     protected JButton dbPathButton, dstPathButton, approveButton;
-    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox, hardwareCheckBox, hwiShortCheckBox, autoUpdateCheckBox, autoUpdateMTSCheckBox;
-    protected JHyperlink goToBot, goToChat, toVideoDir;
-    protected JLabel qrToBotLabel, qrToChatLabel;
+    protected JCheckBox videoCheckBox, chatCheckBox, savesCheckBox, hardwareCheckBox, hwiShortCheckBox, autoUpdateCheckBox, autoUpdateMTSCheckBox,restartIfNotWorkingCheckBox;
+    protected JHyperlink goToBot, goToChat, goToMerChat, toVideoDir;
+    protected JLabel qrToBotLabel, qrToChatLabel, qrToMerChatLabel;
 
     //настройки отслеживания
     protected String pcName = ""; //имя отслеживаемого ПК
@@ -68,6 +68,7 @@ public class Main extends JFrame {
     protected Boolean hwiShort = true; //только видеокарта (1), или все (0)
     protected Boolean autoUpdate = false; //автообновление программы-датчика
     protected Boolean autoUpdateMTS = false; //автообновление МТС Remote Play
+    protected Boolean restartIfNotWorking = false; //перезагрузка каждый час простоя
 
     public Main() throws IOException {
         super("Отслеживание ПК v" + version);
@@ -114,7 +115,7 @@ public class Main extends JFrame {
         //создаем потоки для отсылки данных и записи видео, если есть все настройки
         if (!Objects.equals(pcGuid, "")) {
             asListener = new ASListener(dstPath, offset, savesLifeDays);
-            listener = new Listener(video, fps, duration, videosLifeDays, pcName, userId, pcGuid, chatFlag, autoUpdateMTS);
+            listener = new Listener(video, fps, duration, videosLifeDays, pcName, userId, pcGuid, chatFlag, autoUpdateMTS, restartIfNotWorking);
             sender = new Sender(asListener, saves, pcName, mtsName, userId, filterServices, timeout, dbPath, pcGuid, hardware, hwiShort);
         }
     }
@@ -403,15 +404,28 @@ public class Main extends JFrame {
         autoUpdateMTSCheckBox = new JCheckBox("Автообновление МТС Remote Play");
         autoUpdateMTSCheckBox.setSelected(autoUpdateMTS);
         autoUpdateMTSCheckBox.addActionListener(e -> onAutoUpdateMTSCheckBox());
+        //Галка включения перезагрузки ПК каждый час простоя
+        restartIfNotWorkingCheckBox = new JCheckBox("Перезагрузка ПК каждый час простоя");
+        restartIfNotWorkingCheckBox.setSelected(restartIfNotWorking);
+        restartIfNotWorkingCheckBox.setVisible(
+                Objects.equals(userId, "400614601") ||
+                Objects.equals(userId, "1347977035") ||
+                Objects.equals(userId, "6202715673") ||
+                Objects.equals(userId, "1019088192")
+        );
 
         // --ссылки
-        goToBot = new JHyperlink("Бот для отчетов (так же выдает id пользователя)",
+        goToBot = new JHyperlink("\uD83E\uDD16 Бот для отчетов (+ выдает id пользователя)",
                 "https://t.me/YaEyebot?start");
         qrToBotLabel = new JLabel();
         qrToBotLabel.setIcon(new ImageIcon("QRbot.png"));
-        goToChat = new JHyperlink("Чат для вопросов и новостей", "https://t.me/YadrenoChat/6");
+        goToChat = new JHyperlink("\uD83D\uDD27 Поддержка бота и новости", "https://t.me/YadrenoChat/6");
         qrToChatLabel = new JLabel();
         qrToChatLabel.setIcon(new ImageIcon("QRchat.png"));
+        goToMerChat = new JHyperlink("⭐ Группа мерчантов", "https://t.me/mtsfogplay_merchants");
+        goToMerChat.setForeground(Color.RED);
+        qrToMerChatLabel = new JLabel();
+        qrToMerChatLabel.setIcon(new ImageIcon("QRMerChat.png"));
         toVideoDir = new JHyperlink("Папка с видео", "video");
 
         // --кнопка подтверждения введенных значений
@@ -467,6 +481,9 @@ public class Main extends JFrame {
         constraints.gridx = 0;
         constraints.gridy = 8;
         optionsPanel.add(autoUpdateMTSCheckBox, constraints);
+        constraints.gridx = 0;
+        constraints.gridy = 9;
+        optionsPanel.add(restartIfNotWorkingCheckBox, constraints);
 
         // --панель настроек видеозаписи сессий
         JPanel videoPanel = new JPanel(new GridBagLayout());
@@ -537,14 +554,24 @@ public class Main extends JFrame {
         JPanel linksPanel = new JPanel(new GridBagLayout());
         constraints.gridx = 0;
         constraints.gridy = 0;
+        constraints.ipadx = 5;
         linksPanel.add(goToBot, constraints);
         constraints.gridx = 1;
+        constraints.ipadx = 70;
         linksPanel.add(goToChat, constraints);
+        constraints.gridx = 2;
+        constraints.ipadx = 0;
+        linksPanel.add(goToMerChat, constraints);
         constraints.gridx = 0;
         constraints.gridy = 1;
+        constraints.ipadx = 5;
         linksPanel.add(qrToBotLabel, constraints);
         constraints.gridx = 1;
+        constraints.ipadx = 70;
         linksPanel.add(qrToChatLabel, constraints);
+        constraints.gridx = 2;
+        constraints.ipadx = 0;
+        linksPanel.add(qrToMerChatLabel, constraints);
         linksPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(), "Полезные ссылки"));
 
@@ -697,6 +724,8 @@ public class Main extends JFrame {
             //настройки автообновлений
             jo.put("autoUpdate", (autoUpdateCheckBox.isSelected()) ? "1" : "0");
             jo.put("autoUpdateMTS", (autoUpdateMTSCheckBox.isSelected()) ? "1" : "0");
+            //настройки автоперезагрузки
+            jo.put("restartIfNotWorking", (restartIfNotWorkingCheckBox.isSelected()) ? "1" : "0");
 
             fw.write(jo.toJSONString());
             fw.close();
@@ -743,7 +772,7 @@ public class Main extends JFrame {
         }
 
         app = new Main();
-        app.setSize(750, 930);
+        app.setSize(750, 960);
         app.setResizable(false);
         //если pcGuid уже выделен - сворачиваем в трей
         if (!Objects.equals(app.pcGuid, "")) {
@@ -875,6 +904,9 @@ public class Main extends JFrame {
                     Objects.equals(jsonObject.get("autoUpdate").toString(), "1");
             autoUpdateMTS = (jsonObject.get("autoUpdateMTS") != null) &&
                     Objects.equals(jsonObject.get("autoUpdateMTS").toString(), "1");
+
+            restartIfNotWorking = (jsonObject.get("restartIfNotWorking") != null) &&
+                    Objects.equals(jsonObject.get("restartIfNotWorking").toString(), "1");
         } catch (Exception err) {
             System.err.printf("%1$tF %1$tT %2$s", new Date(), ":: Ошибка:");
             err.printStackTrace();
