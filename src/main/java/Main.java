@@ -22,7 +22,7 @@ import static javax.swing.JOptionPane.ERROR_MESSAGE;
 
 public class Main extends JFrame {
     //guid for Inno Setup: A2C1BDFF-AC19-402E-90EC-B56B00036870
-    public static final String version = "3.3.5";
+    public static final String version = "3.3.7";
     public static final String outNUStorage = "BotNeedUpdate.txt";
     public static final String outMTSNUStorage = "MTSNeedUpdate.txt";
     public static final String updaterDir = "../YaEyeBotUpdater/";

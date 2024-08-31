@@ -89,10 +89,19 @@ public class Sender extends Thread {
                     for (int i = 0; i < info.length; i++)
                         info[i] = info[i].trim();
 
-                    info[4] = info[4].replaceAll(" ", "_"); //читаемое описание, если есть
-                    if (info[2].equals("")) info[2] = info[3]; //если версия файла пустая, берется версия продукта
-                    String name = FilenameUtils.getBaseName(info[4].replaceAll(":", "_"));
-                    if (info[4].equals("")) info[4] = name; //если описание файла пустое, берется его имя
+                    //читаемое описание, если есть
+                    info[4] = info[4].replaceAll(" ", "_");
+                    //если версия файла пустая, берется версия продукта
+                    if (info[2].equals("")) info[2] = info[3];
+                    //имя процесса бреется из описания если имя процесса не определилось, берется его имя файла
+                    String name = "";
+                    if (!info[4].equals(""))
+                        name = FilenameUtils.getBaseName(info[4].replaceAll(":", "_"));
+                    else if (!info[1].equals("")) {
+                        name = FilenameUtils.getBaseName(info[1].replaceAll(":", "_"));
+                    }
+                    //если описание файла пустое, берется его имя
+                    if (info[4].equals("")) info[4] = name;
 
                     processes.add(
                             new ProcessInfo(
@@ -302,7 +311,8 @@ public class Sender extends Thread {
         }
 
         TreeSet<ProcessInfo> procs = listRunningProcesses();
-        boolean procsChanged = !(procs.containsAll(previousProcs) && previousProcs.containsAll(procs));
+        //пока что будем считать, что процессы меняются каждый раз, чтоб отправка шла всегда, т.к. есть пропуски...
+        boolean procsChanged = true; //!(procs.containsAll(previousProcs) && previousProcs.containsAll(procs));
         if (procsChanged)
             previousProcs = procs;
 
